@@ -18,6 +18,7 @@ static Joystick_cfg_t joystick_cfg = {
 };
 
 static Joystick_t joystick_data;
+static GameInput_t input_state;
 static uint8_t last_action_down = 0u;
 static uint32_t last_action_change_tick = 0u;
 
@@ -31,29 +32,40 @@ static uint8_t is_action_button_down(void)
 void input_init(void)
 {
     Joystick_Init(&joystick_cfg);
+
+    input_state.move_x = 0;
+    input_state.move_y = 0;
+    input_state.action_down = 0u;
+    input_state.action_pressed = 0u;
+
     last_action_down = is_action_button_down();
     last_action_change_tick = HAL_GetTick();
 }
 
-void read_input(GameInput_t* input)
+void read_input(void)
 {
     Joystick_Read(&joystick_cfg, &joystick_data);
 
-    input->move_x = Joystick_GetXDirection(&joystick_data);
-    input->move_y = Joystick_GetYDirection(&joystick_data);
+    input_state.move_x = Joystick_GetXDirection(&joystick_data);
+    input_state.move_y = Joystick_GetYDirection(&joystick_data);
+    input_state.action_pressed = 0u;
 
     uint8_t action_now = is_action_button_down();
     uint32_t now = HAL_GetTick();
-    input->action_pressed = 0u;
 
     if (action_now != last_action_down &&
         (uint32_t)(now - last_action_change_tick) >= INPUT_ACTION_DEBOUNCE_MS) {
         last_action_change_tick = now;
         last_action_down = action_now;
         if (action_now != 0u) {
-            input->action_pressed = 1u;
+            input_state.action_pressed = 1u;
         }
     }
 
-    input->action_down = last_action_down;
+    input_state.action_down = last_action_down;
+}
+
+const GameInput_t* input_get_state(void)
+{
+    return &input_state;
 }

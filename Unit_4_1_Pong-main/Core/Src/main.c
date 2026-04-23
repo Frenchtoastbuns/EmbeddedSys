@@ -23,8 +23,6 @@ void PeriphCommonClock_Config(void);
 #define GAME_TARGET_FPS      60u
 #define GAME_FRAME_TIME_MS   (1000u / GAME_TARGET_FPS)
 
-static GameState_t game_state;
-
 int _write(int file, char *ptr, int len)
 {
     (void)file;
@@ -44,12 +42,11 @@ int main(void)
 
     render_init();
     input_init();
-    game_init(&game_state);
+    game_init();
 
-    printf("Generic game engine initialized.\n");
+    printf("Embedded game framework initialized.\n");
 
     uint32_t last_tick = HAL_GetTick();
-    GameInput_t input;
 
     while (1)
     {
@@ -59,9 +56,9 @@ int main(void)
         }
         last_tick = now;
 
-        read_input(&input);
-        update_game(&game_state, &input);
-        render_frame(&game_state);
+        read_input();
+        update_game();
+        render_frame();
     }
 }
 

@@ -1,12 +1,17 @@
 #include "render.h"
 
+#include "game.h"
 #include "LCD.h"
 #include "main.h"
 #include <stdio.h>
 
-#define RENDER_TILE_SIZE 10u
-#define RENDER_MAP_X      0u
-#define RENDER_MAP_Y      0u
+#define RENDER_WORLD_X       0u
+#define RENDER_WORLD_Y       0u
+#define RENDER_WORLD_WIDTH   GAME_WORLD_WIDTH
+#define RENDER_WORLD_HEIGHT  GAME_WORLD_HEIGHT
+#define RENDER_GRID_STEP     16u
+#define RENDER_TEXT_X        4u
+#define RENDER_TEXT_Y        170u
 
 static ST7789V2_cfg_t lcd_cfg = {
     .setup_done = 0,
@@ -22,141 +27,124 @@ static ST7789V2_cfg_t lcd_cfg = {
 
 static char render_text_line[32];
 
-static void draw_map(void)
+static uint16_t world_to_screen_x(int16_t x)
 {
-    for (uint8_t y = 0u; y < GAME_MAP_HEIGHT; y++) {
-        for (uint8_t x = 0u; x < GAME_MAP_WIDTH; x++) {
-            if (game_get_tile(x, y) != 0u) {
-                LCD_Draw_Rect((uint16_t)(RENDER_MAP_X + (x * RENDER_TILE_SIZE)),
-                              (uint16_t)(RENDER_MAP_Y + (y * RENDER_TILE_SIZE)),
-                              RENDER_TILE_SIZE,
-                              RENDER_TILE_SIZE,
-                              2,
-                              1);
-            }
+    return (uint16_t)(RENDER_WORLD_X + x);
+}
+
+static uint16_t world_to_screen_y(int16_t y)
+{
+    return (uint16_t)(RENDER_WORLD_Y + y);
+}
+
+static void draw_world_bounds(void)
+{
+    LCD_Draw_Rect(RENDER_WORLD_X,
+                  RENDER_WORLD_Y,
+                  RENDER_WORLD_WIDTH,
+                  RENDER_WORLD_HEIGHT,
+                  1u,
+                  0u);
+}
+
+static void draw_grid(void)
+{
+    for (uint16_t x = RENDER_GRID_STEP; x < RENDER_WORLD_WIDTH; x += RENDER_GRID_STEP) {
+        LCD_Draw_Line((uint16_t)(RENDER_WORLD_X + x),
+                      RENDER_WORLD_Y,
+                      (uint16_t)(RENDER_WORLD_X + x),
+                      (uint16_t)(RENDER_WORLD_Y + RENDER_WORLD_HEIGHT - 1u),
+                      13u);
+    }
+
+    for (uint16_t y = RENDER_GRID_STEP; y < RENDER_WORLD_HEIGHT; y += RENDER_GRID_STEP) {
+        LCD_Draw_Line(RENDER_WORLD_X,
+                      (uint16_t)(RENDER_WORLD_Y + y),
+                      (uint16_t)(RENDER_WORLD_X + RENDER_WORLD_WIDTH - 1u),
+                      (uint16_t)(RENDER_WORLD_Y + y),
+                      13u);
+    }
+}
+
+static void draw_player(const GameState_t* game)
+{
+    uint8_t colour = (game->action_active != 0u) ? 10u : 14u;
+
+    if (game->action_pulse != 0u) {
+        uint16_t pulse_x = world_to_screen_x(game->player.x);
+        uint16_t pulse_y = world_to_screen_y(game->player.y);
+        uint16_t pulse_w = (uint16_t)game->player.width;
+        uint16_t pulse_h = (uint16_t)game->player.height;
+
+        if (pulse_x >= 2u) {
+            pulse_x -= 2u;
+            pulse_w += 2u;
         }
-    }
-}
-
-static void draw_player(const Player_t* player)
-{
-    uint16_t x = (uint16_t)(RENDER_MAP_X +
-                 (((int32_t)player->x * RENDER_TILE_SIZE) / GAME_TILE_SIZE));
-    uint16_t y = (uint16_t)(RENDER_MAP_Y +
-                 (((int32_t)player->y * RENDER_TILE_SIZE) / GAME_TILE_SIZE));
-    uint16_t size = (uint16_t)(((uint32_t)PLAYER_SIZE * RENDER_TILE_SIZE) / GAME_TILE_SIZE);
-
-    if (size == 0u) {
-        size = 1u;
-    }
-
-    LCD_Draw_Rect(x, y, size, size, 12, 1);
-
-    if (player->shot_flash != 0u) {
-        int16_t center_x = (int16_t)(x + (size / 2u));
-        int16_t center_y = (int16_t)(y + (size / 2u));
-        int16_t end_x = (int16_t)(center_x + (player->facing_x * 32));
-        int16_t end_y = (int16_t)(center_y + (player->facing_y * 32));
-
-        if (end_x < 0) {
-            end_x = 0;
+        if (pulse_y >= 2u) {
+            pulse_y -= 2u;
+            pulse_h += 2u;
         }
-        if (end_y < 0) {
-            end_y = 0;
+        if ((pulse_x + pulse_w + 2u) < RENDER_WORLD_WIDTH) {
+            pulse_w += 2u;
+        }
+        if ((pulse_y + pulse_h + 2u) < RENDER_WORLD_HEIGHT) {
+            pulse_h += 2u;
         }
 
-        LCD_Draw_Line((uint16_t)center_x, (uint16_t)center_y,
-                      (uint16_t)end_x, (uint16_t)end_y,
-                      14);
+        LCD_Draw_Rect(pulse_x,
+                      pulse_y,
+                      pulse_w,
+                      pulse_h,
+                      6u,
+                      0u);
     }
+
+    LCD_Draw_Rect(world_to_screen_x(game->player.x),
+                  world_to_screen_y(game->player.y),
+                  (uint16_t)game->player.width,
+                  (uint16_t)game->player.height,
+                  colour,
+                  1u);
 }
 
-static void draw_enemy(const Enemy_t* enemy)
+static void draw_debug_text(const GameState_t* game)
 {
-    uint16_t x = (uint16_t)(RENDER_MAP_X +
-                 (((int32_t)enemy->x * RENDER_TILE_SIZE) / GAME_TILE_SIZE));
-    uint16_t y = (uint16_t)(RENDER_MAP_Y +
-                 (((int32_t)enemy->y * RENDER_TILE_SIZE) / GAME_TILE_SIZE));
-    uint16_t size = (uint16_t)(((uint32_t)ENEMY_SIZE * RENDER_TILE_SIZE) / GAME_TILE_SIZE);
+    snprintf(render_text_line, sizeof(render_text_line), "Frame: %lu",
+             (unsigned long)game->frame_count);
+    LCD_printString(render_text_line, RENDER_TEXT_X, RENDER_TEXT_Y, 1u, 1u);
 
-    if (size == 0u) {
-        size = 1u;
-    }
+    snprintf(render_text_line, sizeof(render_text_line), "Pos: %d,%d",
+             (int)game->player.x,
+             (int)game->player.y);
+    LCD_printString(render_text_line, RENDER_TEXT_X, RENDER_TEXT_Y + 16u, 1u, 1u);
 
-    LCD_Draw_Rect(x, y, size, size, 4, 1);
-}
+    snprintf(render_text_line, sizeof(render_text_line), "Move: %d,%d",
+             (int)game->last_input.move_x,
+             (int)game->last_input.move_y);
+    LCD_printString(render_text_line, RENDER_TEXT_X, RENDER_TEXT_Y + 32u, 1u, 1u);
 
-static void draw_fault_node(const FaultNode_t* node)
-{
-    uint16_t x = (uint16_t)(RENDER_MAP_X +
-                 (((int32_t)node->x * RENDER_TILE_SIZE) / GAME_TILE_SIZE));
-    uint16_t y = (uint16_t)(RENDER_MAP_Y +
-                 (((int32_t)node->y * RENDER_TILE_SIZE) / GAME_TILE_SIZE));
-    uint16_t size = (uint16_t)(((uint32_t)FAULT_NODE_SIZE * RENDER_TILE_SIZE) / GAME_TILE_SIZE);
-    uint8_t colour = (node->fixed != 0u) ? 10u : 6u;
-
-    if (size == 0u) {
-        size = 1u;
-    }
-
-    LCD_Draw_Rect(x, y, size, size, colour, 1);
-}
-
-static void draw_enemies(const GameState_t* game)
-{
-    for (uint8_t i = 0u; i < game->enemy_count && i < ENEMY_MAX_COUNT; i++) {
-        if (game->enemies[i].active != 0u) {
-            draw_enemy(&game->enemies[i]);
-        }
-    }
-}
-
-static void draw_fault_nodes(const GameState_t* game)
-{
-    for (uint8_t i = 0u; i < game->fault_node_count && i < FAULT_NODE_MAX_COUNT; i++) {
-        draw_fault_node(&game->fault_nodes[i]);
-    }
+    snprintf(render_text_line, sizeof(render_text_line), "Action: %u",
+             (unsigned int)game->action_active);
+    LCD_printString(render_text_line, RENDER_TEXT_X, RENDER_TEXT_Y + 48u, 1u, 1u);
 }
 
 void render_init(void)
 {
     LCD_init(&lcd_cfg);
-    LCD_Fill_Buffer(0);
+    LCD_Fill_Buffer(0u);
     LCD_Refresh(&lcd_cfg);
 }
 
-void render_frame(const GameState_t* game)
+void render_frame(void)
 {
-    LCD_Fill_Buffer(0);
+    const GameState_t* game = game_get_state();
 
-    draw_map();
-    draw_fault_nodes(game);
-    draw_enemies(game);
-    draw_player(&game->player);
+    LCD_Fill_Buffer(0u);
 
-    snprintf(render_text_line, sizeof(render_text_line), "Frame: %lu",
-             (unsigned long)game->frame_count);
-    LCD_printString(render_text_line, 4, 170, 1, 1);
-
-    snprintf(render_text_line, sizeof(render_text_line), "PX:%d PY:%d",
-             (int)game->player.x,
-             (int)game->player.y);
-    LCD_printString(render_text_line, 4, 186, 1, 1);
-
-    snprintf(render_text_line, sizeof(render_text_line), "Fault:%u/%u",
-             (unsigned int)game->fixed_fault_count,
-             (unsigned int)game->fault_node_count);
-    LCD_printString(render_text_line, 4, 202, 1, 1);
-
-    uint8_t repair_progress = 0u;
-    if (game->active_repair_node < FAULT_NODE_MAX_COUNT) {
-        repair_progress = game->fault_nodes[game->active_repair_node].repair_progress;
-    }
-
-    snprintf(render_text_line, sizeof(render_text_line), "Rep:%u Hit:%u",
-             (unsigned int)repair_progress,
-             (unsigned int)game->enemies_hit);
-    LCD_printString(render_text_line, 4, 218, 1, 1);
+    draw_grid();
+    draw_world_bounds();
+    draw_player(game);
+    draw_debug_text(game);
 
     LCD_Refresh(&lcd_cfg);
 }

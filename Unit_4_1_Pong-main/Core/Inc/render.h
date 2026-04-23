@@ -1,9 +1,7 @@
 #ifndef RENDER_H
 #define RENDER_H
 
-#include "game.h"
-
 void render_init(void);
-void render_frame(const GameState_t* game);
+void render_frame(void);
 
 #endif /* RENDER_H */

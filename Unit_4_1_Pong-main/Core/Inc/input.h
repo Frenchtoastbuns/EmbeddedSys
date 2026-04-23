@@ -11,6 +11,7 @@ typedef struct {
 } GameInput_t;
 
 void input_init(void);
-void read_input(GameInput_t* input);
+void read_input(void);
+const GameInput_t* input_get_state(void);
 
 #endif /* INPUT_H */
