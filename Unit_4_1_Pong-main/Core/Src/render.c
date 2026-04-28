@@ -9,6 +9,7 @@
 #define RENDER_MAP_Y        0u
 #define RENDER_TEXT_X       4u
 #define RENDER_TEXT_Y       170u
+#define RENDER_FAULT_SIZE   6u
 
 static ST7789V2_cfg_t lcd_cfg = {
     .setup_done = 0,
@@ -73,6 +74,35 @@ static void draw_player(const GameState_t* game)
                   1u);
 }
 
+static void draw_fault_node(const FaultNode_t* node)
+{
+    uint16_t x = (uint16_t)(RENDER_MAP_X +
+                            (node->tile_x * GAME_TILE_SIZE) +
+                            ((GAME_TILE_SIZE - RENDER_FAULT_SIZE) / 2u));
+    uint16_t y = (uint16_t)(RENDER_MAP_Y +
+                            (node->tile_y * GAME_TILE_SIZE) +
+                            ((GAME_TILE_SIZE - RENDER_FAULT_SIZE) / 2u));
+    uint8_t colour = (node->fixed != 0u) ? 3u : 2u;
+
+    if (node->active == 0u) {
+        return;
+    }
+
+    LCD_Draw_Rect(x,
+                  y,
+                  RENDER_FAULT_SIZE,
+                  RENDER_FAULT_SIZE,
+                  colour,
+                  1u);
+}
+
+static void draw_fault_nodes(const GameState_t* game)
+{
+    for (uint8_t i = 0u; i < game->fault_node_count; i++) {
+        draw_fault_node(&game->fault_nodes[i]);
+    }
+}
+
 static void draw_debug_text(const GameState_t* game)
 {
     snprintf(render_text_line, sizeof(render_text_line), "Frame: %lu",
@@ -84,10 +114,25 @@ static void draw_debug_text(const GameState_t* game)
              (int)game->player.y);
     LCD_printString(render_text_line, RENDER_TEXT_X, RENDER_TEXT_Y + 16u, 1u, 1u);
 
-    snprintf(render_text_line, sizeof(render_text_line), "Input: %d,%d",
-             (int)game->last_input.move_x,
-             (int)game->last_input.move_y);
+    snprintf(render_text_line, sizeof(render_text_line), "Faults: %u/%u",
+             (unsigned int)game->fixed_fault_count,
+             (unsigned int)game->fault_node_count);
     LCD_printString(render_text_line, RENDER_TEXT_X, RENDER_TEXT_Y + 32u, 1u, 1u);
+
+    if (game->repairing_fault_index != FAULT_NODE_NONE) {
+        const FaultNode_t* node = &game->fault_nodes[game->repairing_fault_index];
+
+        snprintf(render_text_line, sizeof(render_text_line), "Repairing: %u/%u",
+                 (unsigned int)node->repair_progress,
+                 (unsigned int)FAULT_REPAIR_THRESHOLD);
+    } else if (game->all_faults_fixed != 0u) {
+        snprintf(render_text_line, sizeof(render_text_line), "All faults fixed");
+    } else {
+        snprintf(render_text_line, sizeof(render_text_line), "Active: %u",
+                 (unsigned int)game->active_fault_count);
+    }
+
+    LCD_printString(render_text_line, RENDER_TEXT_X, RENDER_TEXT_Y + 48u, 1u, 1u);
 }
 
 void render_init(void)
@@ -103,6 +148,7 @@ void render_frame(void)
 
     LCD_Fill_Buffer(0u);
     draw_tile_map();
+    draw_fault_nodes(game);
     draw_player(game);
     draw_debug_text(game);
     LCD_Refresh(&lcd_cfg);

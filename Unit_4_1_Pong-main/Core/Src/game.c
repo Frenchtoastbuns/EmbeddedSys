@@ -2,6 +2,11 @@
 
 static GameState_t game_state;
 
+typedef struct {
+    uint8_t tile_x;
+    uint8_t tile_y;
+} FaultSpawn_t;
+
 static const uint8_t game_map[GAME_MAP_HEIGHT][GAME_MAP_WIDTH] = {
     {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
     {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
@@ -21,6 +26,12 @@ static const uint8_t game_map[GAME_MAP_HEIGHT][GAME_MAP_WIDTH] = {
     {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
 };
 
+static const FaultSpawn_t fault_spawns[MAX_FAULT_NODES] = {
+    {3u, 1u},
+    {11u, 4u},
+    {14u, 14u}
+};
+
 static int16_t clamp_i16(int16_t value, int16_t min_value, int16_t max_value)
 {
     if (value < min_value) {
@@ -34,9 +45,19 @@ static int16_t clamp_i16(int16_t value, int16_t min_value, int16_t max_value)
     return value;
 }
 
+static int16_t abs_i16(int16_t value)
+{
+    return (value < 0) ? (int16_t)-value : value;
+}
+
 static int16_t tile_center_to_world(uint8_t tile)
 {
     return (int16_t)((tile * GAME_TILE_SIZE) + ((GAME_TILE_SIZE - GAME_PLAYER_SIZE) / 2));
+}
+
+static int16_t tile_to_center(uint8_t tile)
+{
+    return (int16_t)((tile * GAME_TILE_SIZE) + (GAME_TILE_SIZE / 2));
 }
 
 uint8_t game_get_tile(uint8_t tile_x, uint8_t tile_y)
@@ -86,6 +107,17 @@ uint8_t game_player_can_move_to(int16_t x, int16_t y)
                      game_is_wall_at_world(right, bottom) == 0u);
 }
 
+uint8_t game_player_is_near_fault_node(const Player_t* player, const FaultNode_t* node)
+{
+    int16_t player_center_x = (int16_t)(player->x + (player->size / 2));
+    int16_t player_center_y = (int16_t)(player->y + (player->size / 2));
+    int16_t node_center_x = tile_to_center(node->tile_x);
+    int16_t node_center_y = tile_to_center(node->tile_y);
+
+    return (uint8_t)(abs_i16((int16_t)(node_center_x - player_center_x)) <= FAULT_REPAIR_DISTANCE &&
+                     abs_i16((int16_t)(node_center_y - player_center_y)) <= FAULT_REPAIR_DISTANCE);
+}
+
 static void move_player(const GameInput_t* input)
 {
     int16_t next_x = (int16_t)(game_state.player.x +
@@ -105,6 +137,79 @@ static void move_player(const GameInput_t* input)
     }
 }
 
+static void update_fault_counts(void)
+{
+    uint8_t active_count = 0u;
+    uint8_t fixed_count = 0u;
+
+    for (uint8_t i = 0u; i < game_state.fault_node_count; i++) {
+        if (game_state.fault_nodes[i].active != 0u &&
+            game_state.fault_nodes[i].fixed == 0u) {
+            active_count++;
+        }
+
+        if (game_state.fault_nodes[i].fixed != 0u) {
+            fixed_count++;
+        }
+    }
+
+    game_state.active_fault_count = active_count;
+    game_state.fixed_fault_count = fixed_count;
+    game_state.all_faults_fixed = (active_count == 0u) ? 1u : 0u;
+}
+
+static void init_fault_nodes(void)
+{
+    game_state.fault_node_count = MAX_FAULT_NODES;
+    game_state.repairing_fault_index = FAULT_NODE_NONE;
+
+    for (uint8_t i = 0u; i < MAX_FAULT_NODES; i++) {
+        game_state.fault_nodes[i].tile_x = fault_spawns[i].tile_x;
+        game_state.fault_nodes[i].tile_y = fault_spawns[i].tile_y;
+        game_state.fault_nodes[i].active = 1u;
+        game_state.fault_nodes[i].fixed = 0u;
+        game_state.fault_nodes[i].repair_progress = 0u;
+    }
+
+    update_fault_counts();
+}
+
+static void update_fault_repairs(const GameInput_t* input)
+{
+    game_state.repairing_fault_index = FAULT_NODE_NONE;
+
+    if (input->action_down == 0u) {
+        return;
+    }
+
+    for (uint8_t i = 0u; i < game_state.fault_node_count; i++) {
+        FaultNode_t* node = &game_state.fault_nodes[i];
+
+        if (node->active == 0u || node->fixed != 0u) {
+            continue;
+        }
+
+        if (game_player_is_near_fault_node(&game_state.player, node) == 0u) {
+            continue;
+        }
+
+        game_state.repairing_fault_index = i;
+
+        if (node->repair_progress < FAULT_REPAIR_THRESHOLD) {
+            node->repair_progress++;
+        }
+
+        if (node->repair_progress >= FAULT_REPAIR_THRESHOLD) {
+            node->repair_progress = FAULT_REPAIR_THRESHOLD;
+            node->fixed = 1u;
+            game_state.repairing_fault_index = FAULT_NODE_NONE;
+            update_fault_counts();
+        }
+
+        return;
+    }
+}
+
 void game_init(void)
 {
     game_state.frame_count = 0u;
@@ -115,6 +220,7 @@ void game_init(void)
     game_state.last_input.move_y = 0;
     game_state.last_input.action_down = 0u;
     game_state.last_input.action_pressed = 0u;
+    init_fault_nodes();
 }
 
 void update_game(void)
@@ -124,6 +230,7 @@ void update_game(void)
     game_state.frame_count++;
     game_state.last_input = *input;
     move_player(input);
+    update_fault_repairs(input);
 }
 
 const GameState_t* game_get_state(void)
