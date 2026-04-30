@@ -105,19 +105,14 @@ static void draw_fault_nodes(const GameState_t* game)
 
 static void draw_debug_text(const GameState_t* game)
 {
-    snprintf(render_text_line, sizeof(render_text_line), "Frame: %lu",
-             (unsigned long)game->frame_count);
+    snprintf(render_text_line, sizeof(render_text_line), "Subsystem: %s",
+             game_get_subsystem_name(game->current_subsystem));
     LCD_printString(render_text_line, RENDER_TEXT_X, RENDER_TEXT_Y, 1u, 1u);
-
-    snprintf(render_text_line, sizeof(render_text_line), "Player: %d,%d",
-             (int)game->player.x,
-             (int)game->player.y);
-    LCD_printString(render_text_line, RENDER_TEXT_X, RENDER_TEXT_Y + 16u, 1u, 1u);
 
     snprintf(render_text_line, sizeof(render_text_line), "Faults: %u/%u",
              (unsigned int)game->fixed_fault_count,
              (unsigned int)game->fault_node_count);
-    LCD_printString(render_text_line, RENDER_TEXT_X, RENDER_TEXT_Y + 32u, 1u, 1u);
+    LCD_printString(render_text_line, RENDER_TEXT_X, RENDER_TEXT_Y + 16u, 1u, 1u);
 
     if (game->repairing_fault_index != FAULT_NODE_NONE) {
         const FaultNode_t* node = &game->fault_nodes[game->repairing_fault_index];
@@ -132,7 +127,32 @@ static void draw_debug_text(const GameState_t* game)
                  (unsigned int)game->active_fault_count);
     }
 
-    LCD_printString(render_text_line, RENDER_TEXT_X, RENDER_TEXT_Y + 48u, 1u, 1u);
+    LCD_printString(render_text_line, RENDER_TEXT_X, RENDER_TEXT_Y + 32u, 1u, 1u);
+}
+
+static void draw_playing_screen(const GameState_t* game)
+{
+    draw_tile_map();
+    draw_fault_nodes(game);
+    draw_player(game);
+    draw_debug_text(game);
+}
+
+static void draw_dialogue_screen(const GameState_t* game)
+{
+    LCD_Draw_Rect(10u, 70u, 220u, 88u, 13u, 0u);
+    LCD_printString("DIAGNOSTIC", 88u, 84u, 10u, 1u);
+    LCD_printString(game->dialogue_title, 16u, 102u, 1u, 1u);
+    LCD_printString(game->dialogue_message, 16u, 118u, 1u, 1u);
+    LCD_printString("Press action", 82u, 140u, 14u, 1u);
+}
+
+static void draw_complete_screen(const GameState_t* game)
+{
+    LCD_Draw_Rect(10u, 72u, 220u, 84u, 3u, 0u);
+    LCD_printString(game->dialogue_title, 62u, 92u, 3u, 1u);
+    LCD_printString(game->dialogue_message, 20u, 112u, 1u, 1u);
+    LCD_printString("Press action", 82u, 136u, 14u, 1u);
 }
 
 void render_init(void)
@@ -147,9 +167,14 @@ void render_frame(void)
     const GameState_t* game = game_get_state();
 
     LCD_Fill_Buffer(0u);
-    draw_tile_map();
-    draw_fault_nodes(game);
-    draw_player(game);
-    draw_debug_text(game);
+
+    if (game->run_state == GAME_STATE_PLAYING) {
+        draw_playing_screen(game);
+    } else if (game->run_state == GAME_STATE_DIALOGUE) {
+        draw_dialogue_screen(game);
+    } else {
+        draw_complete_screen(game);
+    }
+
     LCD_Refresh(&lcd_cfg);
 }

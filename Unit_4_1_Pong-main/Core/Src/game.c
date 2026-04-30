@@ -7,6 +7,13 @@ typedef struct {
     uint8_t tile_y;
 } FaultSpawn_t;
 
+typedef struct {
+    const char* name;
+    const char* repaired_title;
+    const char* repaired_message;
+    FaultSpawn_t fault_spawns[MAX_FAULT_NODES];
+} SubsystemDef_t;
+
 static const uint8_t game_map[GAME_MAP_HEIGHT][GAME_MAP_WIDTH] = {
     {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
     {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
@@ -26,11 +33,35 @@ static const uint8_t game_map[GAME_MAP_HEIGHT][GAME_MAP_WIDTH] = {
     {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
 };
 
-static const FaultSpawn_t fault_spawns[MAX_FAULT_NODES] = {
-    {3u, 1u},
-    {11u, 4u},
-    {14u, 14u}
+static const SubsystemDef_t subsystems[SUBSYSTEM_COUNT] = {
+    {
+        "MMU",
+        "MMU fault repaired",
+        "Address translation stable",
+        {{3u, 1u}, {11u, 4u}, {14u, 14u}}
+    },
+    {
+        "Scheduler",
+        "Scheduler repaired",
+        "Scheduler timing restored",
+        {{2u, 10u}, {9u, 8u}, {13u, 3u}}
+    },
+    {
+        "Cache",
+        "Cache fault cleared",
+        "Cache coherency stable",
+        {{6u, 1u}, {4u, 13u}, {12u, 10u}}
+    },
+    {
+        "I/O Controller",
+        "I/O controller online",
+        "Device bus responding",
+        {{1u, 8u}, {10u, 13u}, {14u, 7u}}
+    }
 };
+
+static const char system_restored_title[] = "System restored";
+static const char system_restored_message[] = "All subsystems online";
 
 static int16_t clamp_i16(int16_t value, int16_t min_value, int16_t max_value)
 {
@@ -55,6 +86,13 @@ static int16_t tile_center_to_world(uint8_t tile)
     return (int16_t)((tile * GAME_TILE_SIZE) + ((GAME_TILE_SIZE - GAME_PLAYER_SIZE) / 2));
 }
 
+static void reset_player_to_spawn(void)
+{
+    game_state.player.x = tile_center_to_world(1u);
+    game_state.player.y = tile_center_to_world(1u);
+    game_state.player.size = GAME_PLAYER_SIZE;
+}
+
 static int16_t tile_to_center(uint8_t tile)
 {
     return (int16_t)((tile * GAME_TILE_SIZE) + (GAME_TILE_SIZE / 2));
@@ -67,6 +105,15 @@ uint8_t game_get_tile(uint8_t tile_x, uint8_t tile_y)
     }
 
     return game_map[tile_y][tile_x];
+}
+
+const char* game_get_subsystem_name(uint8_t subsystem_index)
+{
+    if (subsystem_index >= SUBSYSTEM_COUNT) {
+        return system_restored_title;
+    }
+
+    return subsystems[subsystem_index].name;
 }
 
 uint8_t game_is_wall_at_world(int16_t world_x, int16_t world_y)
@@ -158,20 +205,49 @@ static void update_fault_counts(void)
     game_state.all_faults_fixed = (active_count == 0u) ? 1u : 0u;
 }
 
-static void init_fault_nodes(void)
+static void init_fault_nodes(uint8_t subsystem_index)
 {
     game_state.fault_node_count = MAX_FAULT_NODES;
     game_state.repairing_fault_index = FAULT_NODE_NONE;
 
     for (uint8_t i = 0u; i < MAX_FAULT_NODES; i++) {
-        game_state.fault_nodes[i].tile_x = fault_spawns[i].tile_x;
-        game_state.fault_nodes[i].tile_y = fault_spawns[i].tile_y;
+        game_state.fault_nodes[i].tile_x = subsystems[subsystem_index].fault_spawns[i].tile_x;
+        game_state.fault_nodes[i].tile_y = subsystems[subsystem_index].fault_spawns[i].tile_y;
         game_state.fault_nodes[i].active = 1u;
         game_state.fault_nodes[i].fixed = 0u;
         game_state.fault_nodes[i].repair_progress = 0u;
     }
 
     update_fault_counts();
+}
+
+static void enter_dialogue_state(void)
+{
+    const SubsystemDef_t* subsystem = &subsystems[game_state.current_subsystem];
+
+    game_state.run_state = GAME_STATE_DIALOGUE;
+    game_state.dialogue_title = subsystem->repaired_title;
+    game_state.dialogue_message = subsystem->repaired_message;
+    game_state.repairing_fault_index = FAULT_NODE_NONE;
+}
+
+static void enter_level_complete_state(void)
+{
+    game_state.run_state = GAME_STATE_LEVEL_COMPLETE;
+    game_state.dialogue_title = system_restored_title;
+    game_state.dialogue_message = system_restored_message;
+    game_state.repairing_fault_index = FAULT_NODE_NONE;
+}
+
+static void start_subsystem(uint8_t subsystem_index)
+{
+    game_state.current_subsystem = subsystem_index;
+    game_state.run_state = GAME_STATE_PLAYING;
+    game_state.dialogue_title = subsystems[subsystem_index].name;
+    game_state.dialogue_message = "";
+
+    reset_player_to_spawn();
+    init_fault_nodes(subsystem_index);
 }
 
 static void update_fault_repairs(const GameInput_t* input)
@@ -213,14 +289,11 @@ static void update_fault_repairs(const GameInput_t* input)
 void game_init(void)
 {
     game_state.frame_count = 0u;
-    game_state.player.x = tile_center_to_world(1u);
-    game_state.player.y = tile_center_to_world(1u);
-    game_state.player.size = GAME_PLAYER_SIZE;
     game_state.last_input.move_x = 0;
     game_state.last_input.move_y = 0;
     game_state.last_input.action_down = 0u;
     game_state.last_input.action_pressed = 0u;
-    init_fault_nodes();
+    start_subsystem(0u);
 }
 
 void update_game(void)
@@ -229,8 +302,29 @@ void update_game(void)
 
     game_state.frame_count++;
     game_state.last_input = *input;
-    move_player(input);
-    update_fault_repairs(input);
+
+    if (game_state.run_state == GAME_STATE_PLAYING) {
+        move_player(input);
+        update_fault_repairs(input);
+
+        if (game_state.all_faults_fixed != 0u) {
+            enter_dialogue_state();
+        }
+    } else if (game_state.run_state == GAME_STATE_DIALOGUE) {
+        if (input->action_pressed != 0u) {
+            uint8_t next_subsystem = (uint8_t)(game_state.current_subsystem + 1u);
+
+            if (next_subsystem >= SUBSYSTEM_COUNT) {
+                enter_level_complete_state();
+            } else {
+                start_subsystem(next_subsystem);
+            }
+        }
+    } else {
+        if (input->action_pressed != 0u) {
+            start_subsystem(0u);
+        }
+    }
 }
 
 const GameState_t* game_get_state(void)
