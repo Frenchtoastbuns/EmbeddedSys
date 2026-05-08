@@ -32,15 +32,15 @@ void ST7789V2_Init(ST7789V2_cfg_t* cfg) {
   delay_ms_approx(10);
 
   ST7789V2_Send_Command(cfg, ST7789_MADCTL);
-  ST7789V2_Send_Data(cfg, 0x00);
+  ST7789V2_Send_Data(cfg, ST7789_MADCTL_GAME_ORIENTATION);
 
-  ST7789V2_Send_Command(cfg, ST7789_INVON);
+  ST7789V2_Send_Command(cfg, ST7789_INVOFF);
   delay_ms_approx(10);
 
   ST7789V2_Send_Command(cfg, ST7789_NORON);
   delay_ms_approx(10);
 
-  ST7789V2_Set_Address_Window(cfg, 0, 20, 239, 299); 
+  ST7789V2_Set_Address_Window(cfg, 0, 0, ST7789V2_WIDTH - 1u, ST7789V2_HEIGHT - 1u);
 
   ST7789V2_Send_Command(cfg, 0x29);
   delay_ms_approx(10);

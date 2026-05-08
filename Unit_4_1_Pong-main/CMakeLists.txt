@@ -47,9 +47,15 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
     ${CMAKE_SOURCE_DIR}/ST7789V2_Driver_STM32L4/Core/Src/LCD.c
     ${CMAKE_SOURCE_DIR}/ST7789V2_Driver_STM32L4/Core/Src/ST7789V2_Driver.c
-    ${CMAKE_SOURCE_DIR}/Joystick/Joystick.c
+    ${CMAKE_SOURCE_DIR}/Core/Src/Map.c
+    ${CMAKE_SOURCE_DIR}/Core/Src/Player.c
     ${CMAKE_SOURCE_DIR}/Core/Src/input.c
     ${CMAKE_SOURCE_DIR}/Core/Src/game.c
+    ${CMAKE_SOURCE_DIR}/Core/Src/game_story.c
+    ${CMAKE_SOURCE_DIR}/Core/Src/generated_maps.c
+    ${CMAKE_SOURCE_DIR}/Core/Src/hardware.c
+    ${CMAKE_SOURCE_DIR}/Core/Src/assets_tiles.c
+    ${CMAKE_SOURCE_DIR}/Core/Src/assets_sprites.c
     ${CMAKE_SOURCE_DIR}/Core/Src/render.c
 
 )
@@ -58,8 +64,8 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined include paths
     ${CMAKE_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/Core/Inc
     ${CMAKE_SOURCE_DIR}/ST7789V2_Driver_STM32L4/Core/Inc
-    ${CMAKE_SOURCE_DIR}/Joystick
 )
 
 # Add project symbols (macros)

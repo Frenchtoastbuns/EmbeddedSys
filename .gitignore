@@ -1,0 +1,6 @@
+*.zip
+*.pyc
+__pycache__/
+Unit_4_1_Pong-main/tools/__pycache__/
+Unit_4_1_Pong-main/generated_maps.c
+Unit_4_1_Pong-main/tools/overworld_map_export.c

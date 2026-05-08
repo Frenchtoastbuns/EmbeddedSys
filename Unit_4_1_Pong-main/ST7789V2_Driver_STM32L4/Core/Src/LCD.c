@@ -31,10 +31,10 @@ static const uint16_t palette_vintage[16] = {
 };
 
 static const uint16_t palette_custom[16] = {
-    RGB565_BLACK, RGB565_MINT, RGB565_GREEN_BRIGHT, RGB565_LAVENDER,
-    RGB565_APRICOT, RGB565_TEAL, RGB565_LIME_BRIGHT, RGB565_SKY_BLUE,
-    RGB565_BEIGE , RGB565_SKY_BLUE, RGB565_CYAN, RGB565_VINTAGE_6,
-    RGB565_PINK_BRIGHT, RGB565_CYAN_BRIGHT, RGB565_TEAL_BRIGHT, RGB565_CYAN_BRIGHT
+    RGB565_ASSET_BLACK, RGB565_ASSET_WHITE, RGB565_ASSET_RED, RGB565_ASSET_GREEN,
+    RGB565_ASSET_BLUE, RGB565_ASSET_ORANGE, RGB565_ASSET_GOLD, RGB565_ASSET_PINK,
+    RGB565_ASSET_PURPLE, RGB565_ASSET_NAVY, RGB565_ASSET_LIGHT_BLUE, RGB565_ASSET_DARK_VIOLET,
+    RGB565_ASSET_DARK_PLUM, RGB565_ASSET_STEEL, RGB565_ASSET_CYAN, RGB565_ASSET_MAGENTA
 };
 
 // Active palette pointer (defaults to palette_default)
@@ -93,11 +93,11 @@ void LCD_Set_Palette(LCD_Palette palette) {
 }
 
 void LCD_normalMode(ST7789V2_cfg_t* cfg) {
-  ST7789V2_Send_Command(cfg, ST7789_INVON);
+  ST7789V2_Send_Command(cfg, ST7789_INVOFF);
 }
 
 void LCD_inverseMode(ST7789V2_cfg_t* cfg) {
-  ST7789V2_Send_Command(cfg, ST7789_INVOFF);
+  ST7789V2_Send_Command(cfg, ST7789_INVON);
 }
 
 void LCD_printString(char const *str, const uint16_t x, const uint16_t y, uint8_t colour, uint8_t font_size) {
@@ -178,16 +178,17 @@ void LCD_Fill_Buffer(const uint8_t colour) {
 
 #define lines_per_buffer 1
 // static const int lines_per_buffer = 1;
-static uint16_t line_buffer0[lines_per_buffer*240]; // 240 * 2 Bytes * n rows
-static uint16_t line_buffer1[lines_per_buffer*240]; // 240 * 2 Bytes * n rows
+static uint16_t line_buffer0[lines_per_buffer * ST7789V2_WIDTH];
+static uint16_t line_buffer1[lines_per_buffer * ST7789V2_WIDTH];
 
 void LCD_Refresh(ST7789V2_cfg_t* cfg) {
-  ST7789V2_Set_Address_Window(cfg, 0, 0, 239, 239); 
+  ST7789V2_Set_Address_Window(cfg, 0, 0, ST7789V2_WIDTH - 1u, ST7789V2_HEIGHT - 1u);
   ST7789V2_Send_Command(cfg, 0x2C);
 
   int buf = 0;
-  const int loop_count = 120;  // Pre-calculate (240/2)/lines_per_buffer = 120
-  const int pixels_per_line = 120 * lines_per_buffer;
+  const int packed_pixels_per_line = ST7789V2_WIDTH / 2;
+  const int loop_count = ST7789V2_HEIGHT / 2;
+  const int pixels_per_line = packed_pixels_per_line * lines_per_buffer;
   
   for (int i = 0; i < loop_count; i++) {
     // First line buffer
@@ -197,15 +198,15 @@ void LCD_Refresh(ST7789V2_cfg_t* cfg) {
       }
       buf = 0;
       track_changes[2*i] = 0;
-      for (int j = 0; j < 120*lines_per_buffer; j++) {
-        uint8_t double_pixel = image_buffer[120 * (2*i*lines_per_buffer) + j];
+      for (int j = 0; j < pixels_per_line; j++) {
+        uint8_t double_pixel = image_buffer[packed_pixels_per_line * (2*i*lines_per_buffer) + j];
         line_buffer0[2*j] = colour_map[double_pixel & 0x0F];
         line_buffer0[2*j+1] = colour_map[double_pixel >> 4];
       }
       
-      ST7789V2_Set_Address_Window(cfg, 0, 2*i, 239, 2*i); 
+      ST7789V2_Set_Address_Window(cfg, 0, 2*i, ST7789V2_WIDTH - 1u, 2*i);
       ST7789V2_Send_Command(cfg, 0x2C);
-      ST7789V2_Send_Data_Block(cfg, (uint8_t*) line_buffer0, 480*lines_per_buffer);
+      ST7789V2_Send_Data_Block(cfg, (uint8_t*) line_buffer0, ST7789V2_WIDTH * 2u * lines_per_buffer);
     }
 
     // Second line buffer
@@ -217,22 +218,16 @@ void LCD_Refresh(ST7789V2_cfg_t* cfg) {
       track_changes[2*i + 1] = 0;
       
       // Pre-calculate buffer offset to avoid repeated multiplication
-      const int buffer_offset = 120 * (2*i*lines_per_buffer + 1);
+      const int buffer_offset = packed_pixels_per_line * (2*i*lines_per_buffer + 1);
       for (int j = 0; j < pixels_per_line; j++) {
         uint8_t double_pixel = image_buffer[buffer_offset + j];
         line_buffer1[2*j] = colour_map[double_pixel & 0x0F];
         line_buffer1[2*j+1] = colour_map[double_pixel >> 4];
       }
-      ST7789V2_Set_Address_Window(cfg, 0, 2*i+1, 239, 2*i+1); 
+      ST7789V2_Set_Address_Window(cfg, 0, 2*i+1, ST7789V2_WIDTH - 1u, 2*i+1);
       ST7789V2_Send_Command(cfg, 0x2C);
-      ST7789V2_Send_Data_Block(cfg, (uint8_t*) line_buffer1, 480*lines_per_buffer);
+      ST7789V2_Send_Data_Block(cfg, (uint8_t*) line_buffer1, ST7789V2_WIDTH * 2u * lines_per_buffer);
     }
-  }
-}
-
-void LCD_randomiseBuffer() {
-  for(int i = 0; i < BUFFER_LENGTH; i++) {
-    image_buffer[i] = (uint8_t)rand();  // Cast truncates to byte, avoiding slow modulo
   }
 }
 

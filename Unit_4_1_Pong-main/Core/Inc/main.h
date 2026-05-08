@@ -84,8 +84,6 @@ void Error_Handler(void);
 #define LD2_GPIO_Port GPIOA
 #define A3_Pin GPIO_PIN_0
 #define A3_GPIO_Port GPIOB
-#define BZZ_Pin GPIO_PIN_10
-#define BZZ_GPIO_Port GPIOB
 #define BTN8_Pin GPIO_PIN_6
 #define BTN8_GPIO_Port GPIOC
 #define BTN8_EXTI_IRQn EXTI9_5_IRQn
@@ -107,8 +105,6 @@ void Error_Handler(void);
 #define BTN6_Pin GPIO_PIN_5
 #define BTN6_GPIO_Port GPIOB
 #define BTN6_EXTI_IRQn EXTI9_5_IRQn
-#define PWM_Pin GPIO_PIN_6
-#define PWM_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 

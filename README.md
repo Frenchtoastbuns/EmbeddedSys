@@ -2,6 +2,8 @@
 
 A 2D top-down embedded game built in C for the STM32 Nucleo-L476RG. The player is sent inside a broken circuit board, repairs the speaker module, disables cache nodes in the display controller, and defeats a final hardware bug.
 
+> Firmware project folder: `Unit_4_1_Pong-main/`
+
 This project started from a simple joystick-controlled LCD prototype and grew into a small game demo with Tiled maps, sprite rendering, dialogue, collision, objectives, and a boss fight.
 
 ## Demo Summary
@@ -45,39 +47,37 @@ The final game does not require the old Grove LED bar, DFPlayer, buzzer, PWM out
 ## Code Structure
 
 ```text
-Core/
-  Inc/
-    game.h              Main game state and gameplay constants
-    input.h             Public input state
-    render.h            LCD render entry points
-    Player.h            Direction and movement-facing types
-    Map.h               Wall-check adapter used by movement
-    game_story.h        Dialogue sequence definitions
-    generated_maps.h    Static Tiled map metadata
-    assets_tiles.h      RGB565 tile asset metadata
-    assets_sprites.h    RGB565 sprite asset metadata
-    hardware.h          Safe optional hardware hooks
+Unit_4_1_Pong-main/
+  Core/
+    Inc/
+      game.h              Main game state and gameplay constants
+      input.h             Public input state
+      render.h            LCD render entry points
+      Player.h            Direction and movement-facing types
+      Map.h               Wall-check adapter used by movement
+      game_story.h        Dialogue sequence definitions
+      generated_maps.h    Static Tiled map metadata
+      assets_tiles.h      RGB565 tile asset metadata
+      assets_sprites.h    RGB565 sprite asset metadata
+      hardware.h          Safe optional hardware hooks
 
-  Src/
-    main.c              CubeMX init and simple fixed-timestep loop
-    input.c             Joystick ADC reading and button debounce
-    game.c              Gameplay rules, transitions, objectives, dialogue
-    render.c            Camera, map drawing, sprites, dialogue boxes
-    Player.c            Movement helper retained for direction types
-    Map.c               Collision callback adapter
-    game_story.c        Static dialogue strings
-    generated_maps.c    Tiled maps converted to const arrays
-    assets_tiles.c      Converted RGB565 tile data
-    assets_sprites.c    Converted RGB565 sprite data
-    hardware.c          No-op optional hardware hooks
+    Src/
+      main.c              CubeMX init and simple fixed-timestep loop
+      input.c             Joystick ADC reading and button debounce
+      game.c              Gameplay rules, transitions, objectives, dialogue
+      render.c            Camera, map drawing, sprites, dialogue boxes
+      game_story.c        Static dialogue strings
+      generated_maps.c    Tiled maps converted to const arrays
+      assets_tiles.c      Converted RGB565 tile data
+      assets_sprites.c    Converted RGB565 sprite data
 
-tools/
-  convert_tiled_json_to_c.py       Converts Tiled .tmj/.json maps to C arrays
-  convert_tile_to_rgb565.py        Converts selected tiles to RGB565 arrays
-  convert_sprite_sheet_to_rgb565.py Converts sprite sheets to RGB565 arrays
+  tools/
+    convert_tiled_json_to_c.py
+    convert_tile_to_rgb565.py
+    convert_sprite_sheet_to_rgb565.py
 
-maps/
-  Tiled map source files
+  maps/
+    Tiled map source files
 ```
 
 ## Main Loop
@@ -146,6 +146,7 @@ Shooting is intentionally simple for the demo. If the boss is in front of the pl
 From the firmware folder:
 
 ```powershell
+cd Unit_4_1_Pong-main
 cmake --build build\Debug
 ```
 

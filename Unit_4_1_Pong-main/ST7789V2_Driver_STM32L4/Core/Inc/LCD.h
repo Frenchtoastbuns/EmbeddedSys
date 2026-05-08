@@ -61,6 +61,28 @@ Written by Aeron Jarvis and James Avery
 #define RGB565_TEAL_BRIGHT   0xD244  
 #define RGB565_GREY_STANDARD 0xB5A8 
 
+// Asset palette - 16 colours quantized from the actual Tiled PNG tiles
+// used by the overworld and module maps. The LCD framebuffer stores
+// 4-bit palette indices, so this is the closest firmware-safe match to
+// the source tileset without a large RGB565 framebuffer.
+// Index 0 is darkest and index 1 is brightest so HUD/outlines stay readable.
+#define RGB565_ASSET_BLACK        0x0410  /* #170327 */
+#define RGB565_ASSET_WHITE        0xBCCE  /* #CAD6E3 */
+#define RGB565_ASSET_RED          0x4808  /* #0C0B42 */
+#define RGB565_ASSET_GREEN        0xC628  /* #281830 */
+#define RGB565_ASSET_BLUE         0x4C01  /* #052865 */
+#define RGB565_ASSET_ORANGE       0x2839  /* #392444 */
+#define RGB565_ASSET_GOLD         0x0959  /* #5F234F */
+#define RGB565_ASSET_PINK         0x3112  /* #174789 */
+#define RGB565_ASSET_PURPLE       0x8F5A  /* #5B537D */
+#define RGB565_ASSET_NAVY         0x7844  /* #418CC5 */
+#define RGB565_ASSET_LIGHT_BLUE   0x8BEB  /* #EC715B */
+#define RGB565_ASSET_DARK_VIOLET  0x7794  /* #928FB8 */
+#define RGB565_ASSET_DARK_PLUM    0x0CD4  /* #D18067 */
+#define RGB565_ASSET_STEEL        0x588D  /* #8DAAC5 */
+#define RGB565_ASSET_CYAN         0x8AFD  /* #FFB256 */
+#define RGB565_ASSET_MAGENTA      0xDF7E  /* #7AD9FC */
+
 // These colours are used in the default colour palette
 // Selected from the above for high contrast and variety
 #define LCD_COLOUR_0  RGB565_BLACK
@@ -198,13 +220,6 @@ uint8_t LCD_Get_Pixel(const uint16_t x, const uint16_t y);
 /* Refresh display
 *   This functions sends the screen buffer to the display.*/
 void LCD_Refresh(ST7789V2_cfg_t* cfg);
-
-/* Randomise buffer
-*   This function fills the buffer with random data.  Can be used to test the display.
-*   A call to refresh() must be made to update the display to reflect the change in pixels.
-*   The seed is not set and so the generated pattern will probably be the same each time.
-*   TODO: Randomise the seed - maybe using the noise on the AnalogIn pins.*/
-void LCD_randomiseBuffer();
 
 /* Plot Array
 *   This function plots a one-dimensional array in the buffer.

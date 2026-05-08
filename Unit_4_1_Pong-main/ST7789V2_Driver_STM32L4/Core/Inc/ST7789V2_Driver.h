@@ -53,19 +53,30 @@ Written by Aeron Jarvis with extremely minor modifications by James Avery
 #define ST7789_MADCTL_ML  0x10
 /* RGB/BGR Order ('0' = RGB, '1' = BGR) */
 #define ST7789_MADCTL_RGB 0x00
+#define ST7789_MADCTL_BGR 0x08
 
 #define ST7789_RDID1   0xDA
 #define ST7789_RDID2   0xDB
 #define ST7789_RDID3   0xDC
 #define ST7789_RDID4   0xDD
 
-/* Advanced options */
+/* Advanced options
+ * This project now uses a 2.8 inch 240x320 ILI9341-style SPI LCD.
+ * The existing LCD wrapper is kept so the game code does not need a rewrite.
+ */
 #define ST7789_COLOR_MODE_16bit 0x55    //  RGB565 (16bit)
 #define ST7789_COLOR_MODE_18bit 0x66    //  RGB666 (18bit)
 
-#define ST7789_ROTATION 2	
+/*
+ * 2.8 inch ILI9341 panels are physically 240x320, but this game is played in
+ * landscape. MV swaps X/Y. This ILI9341 panel needs BGR colour order;
+ * without BGR, blue tiles show up brown because red/blue are swapped.
+ * If the image is still mirrored, swap this to:
+ *   (ST7789_MADCTL_MV | ST7789_MADCTL_MX | ST7789_MADCTL_BGR)
+ */
+#define ST7789_MADCTL_GAME_ORIENTATION (ST7789_MADCTL_MV | ST7789_MADCTL_BGR)
 
-#define ST7789V2_WIDTH 240
+#define ST7789V2_WIDTH 320
 
 #define ST7789V2_HEIGHT 240
 

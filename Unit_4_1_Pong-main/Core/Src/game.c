@@ -1,100 +1,167 @@
 #include "game.h"
+#include "generated_maps.h"
+#include "game_story.h"
+#include "Map.h"
+#include "Player.h"
+
+/*
+ * Game rules and state machine.
+ *
+ * Active flow:
+ *   Overworld -> Speaker task -> Display boss -> SYSTEM RESTORED.
+ *
+ * This file does not draw pixels or read ADC pins directly. It only reads the
+ * current GameInput_t and updates GameState_t for render.c to display.
+ */
 
 static GameState_t game_state;
 
-typedef struct {
-    uint8_t tile_x;
-    uint8_t tile_y;
-} FaultSpawn_t;
+static void show_level_complete_dialogue(void);
+static uint8_t game_get_collision_tile(uint8_t tile_x, uint8_t tile_y);
+static void start_story_dialogue(StorySequenceId_t sequence);
 
-typedef struct {
-    uint8_t tile_x;
-    uint8_t tile_y;
-} EnemySpawn_t;
-
-typedef struct {
-    const char* name;
-    const char* complete_title;
-    const char* complete_message;
-    FaultSpawn_t fault_spawns[MAX_FAULT_NODES];
-    EnemySpawn_t enemy_spawns[MAX_ENEMIES];
-} CampaignLevelDef_t;
-
-static const uint8_t game_map[GAME_MAP_HEIGHT][GAME_MAP_WIDTH] = {
-    {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
-    {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
-    {1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1},
-    {1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1},
-    {1, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 1},
-    {1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1},
-    {1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1},
-    {1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 1},
-    {1, 0, 0, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 0, 0, 1},
-    {1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1},
-    {1, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1},
-    {1, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1},
-    {1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1},
-    {1, 0, 0, 0, 0, 1, 1, 0, 1, 0, 0, 0, 0, 1, 0, 1},
-    {1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1},
-    {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
-};
-
-static const CampaignLevelDef_t campaign_levels[CAMPAIGN_LEVEL_COUNT] = {
-    {
-        "LED Bar",
-        "LED BAR FAULT REPAIRED",
-        "DEBUG PULSE UNLOCKED",
-        {{3u, 1u}, {11u, 4u}, {14u, 14u}},
-        {{6u, 1u}, {1u, 8u}, {10u, 13u}}
-    },
-    {
-        "Speaker",
-        "SPEAKER OUTPUT RESTORED",
-        "DISPLAY CONTROLLER CORRUPTED",
-        {{2u, 10u}, {9u, 8u}, {13u, 3u}},
-        {{14u, 1u}, {4u, 5u}, {12u, 10u}}
-    },
-    {
-        "Display",
-        "BOSS POWER SOURCE REPAIRED",
-        "FINAL BUG VULNERABLE",
-        {{6u, 1u}, {4u, 13u}, {12u, 10u}},
-        {{1u, 14u}, {10u, 3u}, {14u, 7u}}
-    }
-};
+#define OVERWORLD_TILE_EMPTY 0u
+#define OVERWORLD_TILE_WALL 1u
+#define OVERWORLD_TILE_SPEAKER 2u
+#define OVERWORLD_TILE_DISPLAY 3u
+#define REMOVABLE_TYPE_LINT 1u
+#define DIALOGUE_NONE 0xFFu
 
 static const char system_restored_title[] = "SYSTEM RESTORED";
 static const char system_restored_message[] = "All hardware online";
 
-static int16_t clamp_i16(int16_t value, int16_t min_value, int16_t max_value)
+/* -------------------------------------------------------------------------
+ * Map lookup helpers
+ * ------------------------------------------------------------------------- */
+
+static uint8_t game_map_is_wall_tile(int tile_x, int tile_y)
 {
-    if (value < min_value) {
-        return min_value;
+    if (tile_x < 0 || tile_y < 0 ||
+        tile_x >= game_get_active_map_width() ||
+        tile_y >= game_get_active_map_height()) {
+        return 1u;
     }
-
-    if (value > max_value) {
-        return max_value;
-    }
-
-    return value;
+    return (uint8_t)(game_get_collision_tile((uint8_t)tile_x,
+                                             (uint8_t)tile_y) != 0u);
 }
+
+static GeneratedMapId_t current_generated_map_id(void)
+{
+    if (game_state.area_mode == AREA_MODE_OVERWORLD) {
+        return GENERATED_MAP_OVERWORLD;
+    }
+    if (game_state.current_level == LEVEL_SPEAKER) {
+        return GENERATED_MAP_SPEAKER;
+    }
+    if (game_state.current_level == LEVEL_DISPLAY_BOSS) {
+        return GENERATED_MAP_DISPLAY;
+    }
+    return GENERATED_MAP_SPEAKER;
+}
+
+static const GeneratedMapData_t* get_active_map_data(void)
+{
+    return generated_map_get(current_generated_map_id());
+}
+
+uint8_t game_get_active_map_width(void)
+{
+    return get_active_map_data()->width;
+}
+
+uint8_t game_get_active_map_height(void)
+{
+    return get_active_map_data()->height;
+}
+
+int16_t game_get_active_world_width(void)
+{
+    return (int16_t)(game_get_active_map_width() * GAME_TILE_SIZE);
+}
+
+int16_t game_get_active_world_height(void)
+{
+    return (int16_t)(game_get_active_map_height() * GAME_TILE_SIZE);
+}
+
+static uint8_t game_get_collision_tile(uint8_t tile_x, uint8_t tile_y)
+{
+    const GeneratedMapData_t* map = get_active_map_data();
+
+    if (tile_x >= game_get_active_map_width() ||
+        tile_y >= game_get_active_map_height()) {
+        return 1u;
+    }
+
+    return generated_map_tile_at(map, map->collision, tile_x, tile_y);
+}
+
+uint8_t game_get_tile(uint8_t tile_x, uint8_t tile_y)
+{
+    const GeneratedMapData_t* map = get_active_map_data();
+
+    if (tile_x >= game_get_active_map_width() ||
+        tile_y >= game_get_active_map_height()) {
+        return 1u;
+    }
+
+    return generated_map_tile_at(map, map->ground, tile_x, tile_y);
+}
+
+uint8_t game_get_object_tile(uint8_t tile_x, uint8_t tile_y)
+{
+    const GeneratedMapData_t* map = get_active_map_data();
+
+    if (tile_x >= game_get_active_map_width() ||
+        tile_y >= game_get_active_map_height()) {
+        return 0u;
+    }
+
+    return generated_map_tile_at(map, map->objects, tile_x, tile_y);
+}
+
+uint8_t game_get_overworld_entrance_tile(uint8_t tile_x, uint8_t tile_y)
+{
+    const GeneratedMapData_t* map = generated_map_get(GENERATED_MAP_OVERWORLD);
+
+    for (uint8_t i = 0u; i < map->entity_count; i++) {
+        if (map->entities[i].type == GENERATED_ENTITY_MODULE_ENTRANCE &&
+            tile_x == map->entities[i].tile_x &&
+            tile_y == map->entities[i].tile_y) {
+            if (map->entities[i].level == LEVEL_SPEAKER) {
+                return OVERWORLD_TILE_SPEAKER;
+            }
+
+            if (map->entities[i].level == LEVEL_DISPLAY_BOSS) {
+                return OVERWORLD_TILE_DISPLAY;
+            }
+        }
+    }
+
+    return OVERWORLD_TILE_EMPTY;
+}
+
+const char* game_get_level_name(CampaignLevel_t level)
+{
+    switch (level) {
+    case LEVEL_SPEAKER:
+        return "Speaker";
+
+    case LEVEL_DISPLAY_BOSS:
+        return "Display";
+
+    default:
+        return system_restored_title;
+    }
+}
+
+/* -------------------------------------------------------------------------
+ * Small math / position helpers
+ * ------------------------------------------------------------------------- */
 
 static int16_t abs_i16(int16_t value)
 {
     return (value < 0) ? (int16_t)-value : value;
-}
-
-static int8_t sign_i16(int16_t value)
-{
-    if (value > 0) {
-        return 1;
-    }
-
-    if (value < 0) {
-        return -1;
-    }
-
-    return 0;
 }
 
 static int16_t tile_center_to_world(uint8_t tile)
@@ -109,8 +176,19 @@ static int16_t tile_center_to_world_for_size(uint8_t tile, uint8_t size)
 
 static void reset_player_to_spawn(void)
 {
-    game_state.player.x = tile_center_to_world(1u);
-    game_state.player.y = tile_center_to_world(1u);
+    GeneratedEntity_t entity;
+    const GeneratedMapData_t* map = get_active_map_data();
+    uint8_t spawn_x = 1u;
+    uint8_t spawn_y = 1u;
+    if (generated_map_find_entity(map,
+                                  GENERATED_ENTITY_PLAYER_SPAWN,
+                                  0u,
+                                  &entity) != 0u) {
+        spawn_x = entity.tile_x;
+        spawn_y = entity.tile_y;
+    }
+    game_state.player.x = tile_center_to_world(spawn_x);
+    game_state.player.y = tile_center_to_world(spawn_y);
     game_state.player.size = GAME_PLAYER_SIZE;
     game_state.player.angle_degrees = 0u;
 }
@@ -125,90 +203,48 @@ static int16_t entity_center(int16_t position, uint8_t size)
     return (int16_t)(position + (size / 2));
 }
 
-static void add_debug_pulse_charge(uint8_t amount)
+static uint8_t player_center_tile(uint8_t* tile_x, uint8_t* tile_y)
 {
-    uint16_t next_charge = (uint16_t)(game_state.debug_pulse_charge + amount);
+    int16_t player_center_x = entity_center(game_state.player.x, game_state.player.size);
+    int16_t player_center_y = entity_center(game_state.player.y, game_state.player.size);
 
-    if (next_charge > DEBUG_PULSE_MAX_CHARGE) {
-        next_charge = DEBUG_PULSE_MAX_CHARGE;
+    if (player_center_x < 0 || player_center_y < 0) {
+        return 0u;
     }
 
-    game_state.debug_pulse_charge = (uint8_t)next_charge;
-    game_state.debug_pulse_ready =
-        (game_state.debug_pulse_charge >= DEBUG_PULSE_MAX_CHARGE) ? 1u : 0u;
-}
+    *tile_x = (uint8_t)(player_center_x / GAME_TILE_SIZE);
+    *tile_y = (uint8_t)(player_center_y / GAME_TILE_SIZE);
 
-uint8_t game_get_tile(uint8_t tile_x, uint8_t tile_y)
-{
-    if (tile_x >= GAME_MAP_WIDTH || tile_y >= GAME_MAP_HEIGHT) {
-        return 1u;
+    if (*tile_x >= game_get_active_map_width() ||
+        *tile_y >= game_get_active_map_height()) {
+        return 0u;
     }
 
-    return game_map[tile_y][tile_x];
+    return 1u;
 }
 
-const char* game_get_level_name(CampaignLevel_t level)
+/* -------------------------------------------------------------------------
+ * Speaker task state
+ * ------------------------------------------------------------------------- */
+
+static void clear_removable_objects(void)
 {
-    if (level >= LEVEL_COMPLETE) {
-        return system_restored_title;
-    }
+    game_state.speaker_lint_count = 0u;
+    game_state.speaker_lint_removed = 0u;
 
-    return campaign_levels[level].name;
+    for (uint8_t i = 0u; i < MAX_REMOVABLE_OBJECTS; i++) {
+        game_state.removable_objects[i].tile_x = 0u;
+        game_state.removable_objects[i].tile_y = 0u;
+        game_state.removable_objects[i].active = 0u;
+        game_state.removable_objects[i].type = 0u;
+    }
 }
 
-uint16_t wrap_angle(int16_t angle_degrees)
-{
-    while (angle_degrees < 0) {
-        angle_degrees = (int16_t)(angle_degrees + 360);
-    }
+/* -------------------------------------------------------------------------
+ * Movement, collision and shooting
+ * ------------------------------------------------------------------------- */
 
-    while (angle_degrees >= 360) {
-        angle_degrees = (int16_t)(angle_degrees - 360);
-    }
-
-    return (uint16_t)angle_degrees;
-}
-
-uint16_t get_player_angle(void)
-{
-    return game_state.player.angle_degrees;
-}
-
-GameVector2i_t get_player_forward_vector_int(void)
-{
-    GameVector2i_t forward = {0, 0};
-    uint16_t angle = get_player_angle();
-
-    if (angle < 23u || angle >= 338u) {
-        forward.x = 8;
-        forward.y = 0;
-    } else if (angle < 68u) {
-        forward.x = 6;
-        forward.y = 6;
-    } else if (angle < 113u) {
-        forward.x = 0;
-        forward.y = 8;
-    } else if (angle < 158u) {
-        forward.x = -6;
-        forward.y = 6;
-    } else if (angle < 203u) {
-        forward.x = -8;
-        forward.y = 0;
-    } else if (angle < 248u) {
-        forward.x = -6;
-        forward.y = -6;
-    } else if (angle < 293u) {
-        forward.x = 0;
-        forward.y = -8;
-    } else {
-        forward.x = 6;
-        forward.y = -6;
-    }
-
-    return forward;
-}
-
-uint8_t game_is_wall_at_world(int16_t world_x, int16_t world_y)
+static uint8_t game_is_wall_at_world(int16_t world_x, int16_t world_y)
 {
     int16_t tile_x;
     int16_t tile_y;
@@ -216,18 +252,18 @@ uint8_t game_is_wall_at_world(int16_t world_x, int16_t world_y)
     if (world_x < 0 || world_y < 0) {
         return 1u;
     }
-
     tile_x = (int16_t)(world_x / GAME_TILE_SIZE);
     tile_y = (int16_t)(world_y / GAME_TILE_SIZE);
 
-    if (tile_x >= (int16_t)GAME_MAP_WIDTH || tile_y >= (int16_t)GAME_MAP_HEIGHT) {
+    if (tile_x >= (int16_t)game_get_active_map_width() ||
+        tile_y >= (int16_t)game_get_active_map_height()) {
         return 1u;
     }
 
-    return game_get_tile((uint8_t)tile_x, (uint8_t)tile_y);
+    return (uint8_t)(game_get_collision_tile((uint8_t)tile_x, (uint8_t)tile_y) != 0u);
 }
 
-uint8_t game_player_can_move_to(int16_t x, int16_t y)
+static uint8_t game_player_can_move_to(int16_t x, int16_t y)
 {
     int16_t right = (int16_t)(x + game_state.player.size - 1);
     int16_t bottom = (int16_t)(y + game_state.player.size - 1);
@@ -236,55 +272,38 @@ uint8_t game_player_can_move_to(int16_t x, int16_t y)
         return 0u;
     }
 
-    if (right >= GAME_WORLD_WIDTH || bottom >= GAME_WORLD_HEIGHT) {
+    if (right >= game_get_active_world_width() || bottom >= game_get_active_world_height()) {
         return 0u;
     }
-
     return (uint8_t)(game_is_wall_at_world(x, y) == 0u &&
                      game_is_wall_at_world(right, y) == 0u &&
                      game_is_wall_at_world(x, bottom) == 0u &&
                      game_is_wall_at_world(right, bottom) == 0u);
-}
-
-static uint8_t enemy_can_move_to(int16_t x, int16_t y)
-{
-    int16_t right = (int16_t)(x + ENEMY_SIZE - 1);
-    int16_t bottom = (int16_t)(y + ENEMY_SIZE - 1);
-
-    if (x < 0 || y < 0) {
-        return 0u;
-    }
-
-    if (right >= GAME_WORLD_WIDTH || bottom >= GAME_WORLD_HEIGHT) {
-        return 0u;
-    }
-
-    return (uint8_t)(game_is_wall_at_world(x, y) == 0u &&
-                     game_is_wall_at_world(right, y) == 0u &&
-                     game_is_wall_at_world(x, bottom) == 0u &&
-                     game_is_wall_at_world(right, bottom) == 0u);
-}
-
-uint8_t game_player_is_near_fault_node(const Player_t* player, const FaultNode_t* node)
-{
-    int16_t player_center_x = (int16_t)(player->x + (player->size / 2));
-    int16_t player_center_y = (int16_t)(player->y + (player->size / 2));
-    int16_t node_center_x = tile_to_center(node->tile_x);
-    int16_t node_center_y = tile_to_center(node->tile_y);
-
-    return (uint8_t)(abs_i16((int16_t)(node_center_x - player_center_x)) <= FAULT_REPAIR_DISTANCE &&
-                     abs_i16((int16_t)(node_center_y - player_center_y)) <= FAULT_REPAIR_DISTANCE);
 }
 
 static void move_player(const GameInput_t* input)
 {
-    int16_t next_x = (int16_t)(game_state.player.x +
-                               (input->move_x * GAME_PLAYER_SPEED));
-    int16_t next_y = (int16_t)(game_state.player.y +
-                               (input->move_y * GAME_PLAYER_SPEED));
+    int16_t next_x = game_state.player.x;
+    int16_t next_y = game_state.player.y;
 
-    next_x = clamp_i16(next_x, 0, GAME_WORLD_WIDTH - game_state.player.size);
-    next_y = clamp_i16(next_y, 0, GAME_WORLD_HEIGHT - game_state.player.size);
+    /*
+     * Direct pixel movement is easier to tune for the final demo than the old
+     * fixed-point driver path. X and Y are still checked separately so the
+     * player can slide along walls.
+     */
+    if (input->joy1_direction == N) {
+        next_y = (int16_t)(next_y - GAME_PLAYER_SPEED);
+        game_state.player.angle_degrees = 270u;
+    } else if (input->joy1_direction == S) {
+        next_y = (int16_t)(next_y + GAME_PLAYER_SPEED);
+        game_state.player.angle_degrees = 90u;
+    } else if (input->joy1_direction == E) {
+        next_x = (int16_t)(next_x + GAME_PLAYER_SPEED);
+        game_state.player.angle_degrees = 0u;
+    } else if (input->joy1_direction == W) {
+        next_x = (int16_t)(next_x - GAME_PLAYER_SPEED);
+        game_state.player.angle_degrees = 180u;
+    }
 
     if (game_player_can_move_to(next_x, game_state.player.y) != 0u) {
         game_state.player.x = next_x;
@@ -294,71 +313,73 @@ static void move_player(const GameInput_t* input)
         game_state.player.y = next_y;
     }
 }
-
-static void turn_player(const GameInput_t* input)
+static void init_speaker_task_objective(void)
 {
-    int16_t angle = (int16_t)game_state.player.angle_degrees;
+    GeneratedEntity_t entity;
+    const GeneratedMapData_t* map = get_active_map_data();
 
-    if (input->move_x < 0) {
-        angle = (int16_t)(angle - GAME_TURN_SPEED_DEGREES);
-    } else if (input->move_x > 0) {
-        angle = (int16_t)(angle + GAME_TURN_SPEED_DEGREES);
-    }
+    clear_removable_objects();
+    game_state.speaker_task_done = 0u;
 
-    game_state.player.angle_degrees = wrap_angle(angle);
-}
-
-static void update_fault_counts(void)
-{
-    uint8_t active_count = 0u;
-    uint8_t fixed_count = 0u;
-
-    for (uint8_t i = 0u; i < game_state.fault_node_count; i++) {
-        if (game_state.fault_nodes[i].active != 0u &&
-            game_state.fault_nodes[i].fixed == 0u) {
-            active_count++;
+    for (uint8_t i = 0u; i < MAX_REMOVABLE_OBJECTS; i++) {
+        if (generated_map_find_entity(map,
+                                      GENERATED_ENTITY_SPEAKER_LINT,
+                                      i,
+                                      &entity) == 0u) {
+            break;
         }
+        game_state.removable_objects[i].tile_x = entity.tile_x;
+        game_state.removable_objects[i].tile_y = entity.tile_y;
+        game_state.removable_objects[i].active = 1u;
+        game_state.removable_objects[i].type = REMOVABLE_TYPE_LINT;
+        game_state.speaker_lint_count++;
+    }
+}
 
-        if (game_state.fault_nodes[i].fixed != 0u) {
-            fixed_count++;
+/* -------------------------------------------------------------------------
+ * Display boss setup
+ * ------------------------------------------------------------------------- */
+
+static void init_boss_dials(void)
+{
+    const GeneratedMapData_t* map = get_active_map_data();
+    GeneratedEntity_t entity;
+
+    static const uint8_t fallback_dials[MAX_BOSS_DIALS][2] = {
+        {11u, 21u},
+        {15u, 21u},
+        {19u, 21u},
+        {9u, 2u},
+        {13u, 2u},
+        {17u, 2u}
+    };
+
+    game_state.boss_dial_count = 0u;
+    game_state.boss_dials_disabled = 0u;
+
+    for (uint8_t i = 0u; i < MAX_BOSS_DIALS; i++) {
+        game_state.boss_dials[i].tile_x = 0u;
+        game_state.boss_dials[i].tile_y = 0u;
+        game_state.boss_dials[i].active = 0u;
+        game_state.boss_dials[i].disabled = 0u;
+    }
+
+    for (uint8_t i = 0u; i < DISPLAY_DIAL_COUNT; i++) {
+        uint8_t tile_x = fallback_dials[i][0];
+        uint8_t tile_y = fallback_dials[i][1];
+
+        if (generated_map_find_entity(map,
+                                      GENERATED_ENTITY_BOSS_DIAL,
+                                      i,
+                                      &entity) != 0u) {
+            tile_x = entity.tile_x;
+            tile_y = entity.tile_y;
         }
-    }
-
-    game_state.active_fault_count = active_count;
-    game_state.fixed_fault_count = fixed_count;
-    game_state.all_faults_fixed = (active_count == 0u) ? 1u : 0u;
-}
-
-static void init_fault_nodes(CampaignLevel_t level)
-{
-    game_state.fault_node_count = MAX_FAULT_NODES;
-    game_state.repairing_fault_index = FAULT_NODE_NONE;
-
-    for (uint8_t i = 0u; i < MAX_FAULT_NODES; i++) {
-        game_state.fault_nodes[i].tile_x = campaign_levels[level].fault_spawns[i].tile_x;
-        game_state.fault_nodes[i].tile_y = campaign_levels[level].fault_spawns[i].tile_y;
-        game_state.fault_nodes[i].active = 1u;
-        game_state.fault_nodes[i].fixed = 0u;
-        game_state.fault_nodes[i].repair_progress = 0u;
-    }
-
-    update_fault_counts();
-}
-
-static void init_enemies(CampaignLevel_t level)
-{
-    game_state.enemy_count = MAX_ENEMIES;
-
-    for (uint8_t i = 0u; i < MAX_ENEMIES; i++) {
-        int16_t x = tile_center_to_world_for_size(campaign_levels[level].enemy_spawns[i].tile_x,
-                                                  ENEMY_SIZE);
-        int16_t y = tile_center_to_world_for_size(campaign_levels[level].enemy_spawns[i].tile_y,
-                                                  ENEMY_SIZE);
-
-        game_state.enemies[i].x = x;
-        game_state.enemies[i].y = y;
-        game_state.enemies[i].active = enemy_can_move_to(x, y);
-        game_state.enemies[i].health = ENEMY_HEALTH;
+        game_state.boss_dials[i].tile_x = tile_x;
+        game_state.boss_dials[i].tile_y = tile_y;
+        game_state.boss_dials[i].active = 1u;
+        game_state.boss_dials[i].disabled = 0u;
+        game_state.boss_dial_count++;
     }
 }
 
@@ -368,355 +389,300 @@ static void enter_level_complete_state(void)
     game_state.current_level = LEVEL_COMPLETE;
     game_state.dialogue_title = system_restored_title;
     game_state.dialogue_message = system_restored_message;
-    game_state.repairing_fault_index = FAULT_NODE_NONE;
 }
 
-static void enter_campaign_dialogue(const char* title, const char* message)
+static void enter_ending_dialogue(void)
+{
+    game_state.boss.active = 0u;
+    game_state.boss.vulnerable = 0u;
+    start_story_dialogue(STORY_ENDING);
+}
+
+/* -------------------------------------------------------------------------
+ * Dialogue
+ * ------------------------------------------------------------------------- */
+
+static void set_dialogue_line(void)
+{
+    if (game_state.dialogue_sequence >= STORY_SEQUENCE_COUNT) {
+        return;
+    }
+    game_state.dialogue_title =
+        story_defs[game_state.dialogue_sequence].lines[game_state.dialogue_index].speaker;
+    game_state.dialogue_message =
+        story_defs[game_state.dialogue_sequence].lines[game_state.dialogue_index].text;
+}
+
+static void start_story_dialogue(StorySequenceId_t sequence)
 {
     game_state.run_state = GAME_STATE_DIALOGUE;
-    game_state.dialogue_title = title;
-    game_state.dialogue_message = message;
-    game_state.repairing_fault_index = FAULT_NODE_NONE;
+    game_state.dialogue_sequence = (uint8_t)sequence;
+    game_state.dialogue_index = 0u;
+    set_dialogue_line();
 }
 
-static void sync_boss_flags(void)
+static void start_story_dialogue_once(StorySequenceId_t sequence, StoryFlag_t flag)
 {
-    game_state.boss_active = game_state.boss.active;
-    game_state.boss_vulnerable = game_state.boss.vulnerable;
-    game_state.boss_health = game_state.boss.health;
+    if ((game_state.story_flags & flag) != 0u) {
+        return;
+    }
+    game_state.story_flags |= flag;
+    start_story_dialogue(sequence);
 }
+
+/* -------------------------------------------------------------------------
+ * Area transitions and level setup
+ * ------------------------------------------------------------------------- */
 
 static void init_boss_for_level(CampaignLevel_t level)
 {
-    game_state.boss.x = tile_center_to_world_for_size(13u, BOSS_SIZE);
-    game_state.boss.y = tile_center_to_world_for_size(14u, BOSS_SIZE);
-    game_state.boss.active = 0u;
-    game_state.boss.vulnerable = 0u;
-    game_state.boss.health = 0u;
-    game_state.display_corruption_ticks = 0u;
+    GeneratedEntity_t entity;
+    uint8_t boss_tile_x = 20u;
+    uint8_t boss_tile_y = 18u;
 
     if (level == LEVEL_DISPLAY_BOSS &&
-        enemy_can_move_to(game_state.boss.x, game_state.boss.y) != 0u) {
-        game_state.boss.active = 1u;
-        game_state.boss.vulnerable = 0u;
-        game_state.boss.health = BOSS_HEALTH;
+        generated_map_find_entity(get_active_map_data(),
+                                  GENERATED_ENTITY_BOSS_SPAWN,
+                                  0u,
+                                  &entity) != 0u) {
+        boss_tile_x = entity.tile_x;
+        boss_tile_y = entity.tile_y;
     }
 
-    sync_boss_flags();
+    game_state.boss.x = tile_center_to_world_for_size(boss_tile_x, BOSS_SIZE);
+    game_state.boss.y = tile_center_to_world_for_size(boss_tile_y, BOSS_SIZE);
+    game_state.boss.active = 0u;
+    game_state.boss.vulnerable = 0u;
+    game_state.display_corruption_ticks = 0u;
+    if (level == LEVEL_DISPLAY_BOSS) {
+        game_state.boss.active = 1u;
+        game_state.boss.vulnerable = 0u;
+    }
 }
 
 static void start_level(CampaignLevel_t level)
 {
+    game_state.area_mode = AREA_MODE_COMPONENT_INTERIOR;
     game_state.current_level = level;
     game_state.run_state = GAME_STATE_PLAYING;
     game_state.dialogue_title = game_get_level_name(level);
     game_state.dialogue_message = "";
-
+    clear_removable_objects();
     reset_player_to_spawn();
-    init_fault_nodes(level);
-    init_enemies(level);
+
+    if (level == LEVEL_SPEAKER) {
+        init_speaker_task_objective();
+    } else if (level == LEVEL_DISPLAY_BOSS) {
+        init_boss_dials();
+    }
+
     init_boss_for_level(level);
-    game_state.damage_cooldown = 0u;
-    game_state.shot_cooldown = 0u;
-    game_state.shot_flash = 0u;
-    game_state.debug_pulse_active_ticks = 0u;
+    game_state.speaker_task_done = 0u;
+
+    if (level == LEVEL_SPEAKER) {
+        start_story_dialogue_once(STORY_SPEAKER_ENTRY, STORY_FLAG_SPEAKER_ENTRY_DONE);
+    } else if (level == LEVEL_DISPLAY_BOSS) {
+        start_story_dialogue_once(STORY_DISPLAY_ENTRY, STORY_FLAG_DISPLAY_ENTRY_DONE);
+    }
+}
+
+static void enter_overworld(void)
+{
+    game_state.area_mode = AREA_MODE_OVERWORLD;
+    game_state.run_state = GAME_STATE_PLAYING;
+    game_state.dialogue_title = "Motherboard";
+    game_state.dialogue_message = "";
+    game_state.boss.active = 0u;
+    game_state.boss.vulnerable = 0u;
+    game_state.boss_dial_count = 0u;
+    game_state.boss_dials_disabled = 0u;
+    clear_removable_objects();
+    game_state.display_corruption_ticks = 0u;
+    game_state.player.x = game_state.overworld_return_x;
+    game_state.player.y = game_state.overworld_return_y;
+    game_state.player.size = GAME_PLAYER_SIZE;
 }
 
 static void reset_campaign_progress(void)
 {
-    game_state.led_bar_restored = 0u;
-    game_state.debug_pulse_unlocked = 0u;
+    GeneratedEntity_t entity;
+    const GeneratedMapData_t* overworld = generated_map_get(GENERATED_MAP_OVERWORLD);
+
     game_state.speaker_restored = 0u;
-    game_state.audio_unlocked = 0u;
     game_state.display_restored = 0u;
-    game_state.debug_pulse_charge = 0u;
-    game_state.debug_pulse_ready = 0u;
-    game_state.debug_pulse_active_ticks = 0u;
     game_state.display_corruption_ticks = 0u;
+    game_state.speaker_task_done = 0u;
+    clear_removable_objects();
+    game_state.boss_dial_count = 0u;
+    game_state.boss_dials_disabled = 0u;
+
+    game_state.overworld_return_x = tile_center_to_world(2u);
+    game_state.overworld_return_y = tile_center_to_world(3u);
+
+    if (generated_map_find_entity(overworld,
+                                  GENERATED_ENTITY_PLAYER_SPAWN,
+                                  0u,
+                                  &entity) != 0u) {
+        game_state.overworld_return_x = tile_center_to_world(entity.tile_x);
+        game_state.overworld_return_y = tile_center_to_world(entity.tile_y);
+    }
 }
 
-static void enter_current_level_completed_dialogue(void)
-{
-    const CampaignLevelDef_t* level = &campaign_levels[game_state.current_level];
+/* -------------------------------------------------------------------------
+ * Objectives
+ * ------------------------------------------------------------------------- */
 
-    if (game_state.current_level == LEVEL_LED_BAR) {
-        game_state.led_bar_restored = 1u;
-        game_state.debug_pulse_unlocked = 1u;
-    } else if (game_state.current_level == LEVEL_SPEAKER) {
+static void show_level_complete_dialogue(void)
+{
+    if (game_state.current_level == LEVEL_SPEAKER) {
         game_state.speaker_restored = 1u;
-        game_state.audio_unlocked = 1u;
-    } else if (game_state.current_level == LEVEL_DISPLAY_BOSS) {
-        game_state.display_restored = 1u;
-        game_state.boss.vulnerable = 1u;
-        sync_boss_flags();
-    }
-
-    enter_campaign_dialogue(level->complete_title, level->complete_message);
-}
-
-static uint8_t find_near_repairable_fault(void)
-{
-    for (uint8_t i = 0u; i < game_state.fault_node_count; i++) {
-        FaultNode_t* node = &game_state.fault_nodes[i];
-
-        if (node->active == 0u || node->fixed != 0u) {
-            continue;
-        }
-
-        if (game_player_is_near_fault_node(&game_state.player, node) != 0u) {
-            return i;
-        }
-    }
-
-    return FAULT_NODE_NONE;
-}
-
-static uint8_t update_fault_repairs(const GameInput_t* input)
-{
-    uint8_t node_index = find_near_repairable_fault();
-
-    game_state.repairing_fault_index = FAULT_NODE_NONE;
-
-    if (node_index == FAULT_NODE_NONE) {
-        return 0u;
-    }
-
-    if (input->action_down == 0u) {
-        return 1u;
-    }
-
-    FaultNode_t* node = &game_state.fault_nodes[node_index];
-    game_state.repairing_fault_index = node_index;
-
-    if (node->repair_progress < FAULT_REPAIR_THRESHOLD) {
-        node->repair_progress++;
-    }
-
-    if (node->repair_progress >= FAULT_REPAIR_THRESHOLD) {
-        node->repair_progress = FAULT_REPAIR_THRESHOLD;
-        node->fixed = 1u;
-        game_state.repairing_fault_index = FAULT_NODE_NONE;
-        add_debug_pulse_charge(DEBUG_PULSE_REPAIR_CHARGE);
-        update_fault_counts();
-    }
-
-    return 1u;
-}
-
-static uint8_t enemy_touches_player(const Enemy_t* enemy)
-{
-    int16_t player_center_x = entity_center(game_state.player.x, game_state.player.size);
-    int16_t player_center_y = entity_center(game_state.player.y, game_state.player.size);
-    int16_t enemy_center_x = entity_center(enemy->x, ENEMY_SIZE);
-    int16_t enemy_center_y = entity_center(enemy->y, ENEMY_SIZE);
-
-    return (uint8_t)(abs_i16((int16_t)(enemy_center_x - player_center_x)) <= ENEMY_CONTACT_DISTANCE &&
-                     abs_i16((int16_t)(enemy_center_y - player_center_y)) <= ENEMY_CONTACT_DISTANCE);
-}
-
-static void apply_enemy_contact_damage(void)
-{
-    if (game_state.damage_cooldown > 0u) {
-        game_state.damage_cooldown--;
+        game_state.speaker_task_done = 1u;
+        start_story_dialogue(STORY_SPEAKER_COMPLETE);
         return;
     }
 
-    for (uint8_t i = 0u; i < game_state.enemy_count; i++) {
-        if (game_state.enemies[i].active == 0u) {
-            continue;
-        }
-
-        if (enemy_touches_player(&game_state.enemies[i]) != 0u) {
-            if (game_state.system_stability > 0u) {
-                game_state.system_stability--;
-            }
-
-            game_state.damage_cooldown = PLAYER_DAMAGE_COOLDOWN_FRAMES;
-            return;
-        }
+    if (game_state.current_level == LEVEL_DISPLAY_BOSS) {
+        game_state.display_restored = 1u;
+        game_state.boss.vulnerable = 1u;
+        game_state.story_flags |= STORY_FLAG_BOSS_VULN_DONE;
+        start_story_dialogue(STORY_BOSS_VULNERABLE);
+        return;
     }
 }
 
-static uint8_t try_move_enemy_axis(Enemy_t* enemy, int8_t step_x, int8_t step_y)
+static uint8_t player_is_near_removable_object(const RemovableObject_t* object)
 {
-    int16_t next_x = (int16_t)(enemy->x + step_x);
-    int16_t next_y = (int16_t)(enemy->y + step_y);
+    int16_t player_center_x = entity_center(game_state.player.x, game_state.player.size);
+    int16_t player_center_y = entity_center(game_state.player.y, game_state.player.size);
+    int16_t object_center_x = tile_to_center(object->tile_x);
+    int16_t object_center_y = tile_to_center(object->tile_y);
 
-    if (enemy_can_move_to(next_x, next_y) != 0u) {
-        enemy->x = next_x;
-        enemy->y = next_y;
+    return (uint8_t)(abs_i16((int16_t)(player_center_x - object_center_x)) <= FAULT_REPAIR_DISTANCE &&
+                     abs_i16((int16_t)(player_center_y - object_center_y)) <= FAULT_REPAIR_DISTANCE);
+}
+
+static uint8_t update_removable_objects(const GameInput_t* input)
+{
+    if (game_state.current_level != LEVEL_SPEAKER ||
+        game_state.area_mode != AREA_MODE_COMPONENT_INTERIOR) {
+        return 0u;
+    }
+    for (uint8_t i = 0u; i < game_state.speaker_lint_count; i++) {
+        RemovableObject_t* object = &game_state.removable_objects[i];
+
+        if (object->active == 0u || object->type != REMOVABLE_TYPE_LINT) {
+            continue;
+        }
+        if (player_is_near_removable_object(object) == 0u) {
+            continue;
+        }
+        if (input->action_pressed == 0u) {
+            return 1u;
+        }
+
+        object->active = 0u;
+
+        if (game_state.speaker_lint_removed < game_state.speaker_lint_count) {
+            game_state.speaker_lint_removed++;
+        }
+
+        if (game_state.speaker_lint_removed >= game_state.speaker_lint_count &&
+            game_state.speaker_restored == 0u) {
+            game_state.speaker_task_done = 1u;
+            show_level_complete_dialogue();
+        }
         return 1u;
     }
-
     return 0u;
 }
 
-static void move_enemy_toward_player(Enemy_t* enemy)
+static uint8_t player_is_near_boss_dial(const BossDial_t* dial)
 {
-    int16_t enemy_center_x = entity_center(enemy->x, ENEMY_SIZE);
-    int16_t enemy_center_y = entity_center(enemy->y, ENEMY_SIZE);
     int16_t player_center_x = entity_center(game_state.player.x, game_state.player.size);
     int16_t player_center_y = entity_center(game_state.player.y, game_state.player.size);
-    int16_t dx = (int16_t)(player_center_x - enemy_center_x);
-    int16_t dy = (int16_t)(player_center_y - enemy_center_y);
-    int8_t step_x = sign_i16(dx);
-    int8_t step_y = sign_i16(dy);
+    int16_t dial_center_x = tile_to_center(dial->tile_x);
+    int16_t dial_center_y = tile_to_center(dial->tile_y);
 
-    if (abs_i16(dx) >= abs_i16(dy)) {
-        if (try_move_enemy_axis(enemy, step_x, 0) == 0u && step_y != 0) {
-            (void)try_move_enemy_axis(enemy, 0, step_y);
-        }
-    } else {
-        if (try_move_enemy_axis(enemy, 0, step_y) == 0u && step_x != 0) {
-            (void)try_move_enemy_axis(enemy, step_x, 0);
-        }
-    }
+    return (uint8_t)(abs_i16((int16_t)(player_center_x - dial_center_x)) <= FAULT_REPAIR_DISTANCE &&
+                     abs_i16((int16_t)(player_center_y - dial_center_y)) <= FAULT_REPAIR_DISTANCE);
 }
 
-static void update_enemies(void)
+static uint8_t update_boss_dials(const GameInput_t* input)
 {
-    if ((game_state.frame_count % ENEMY_MOVE_INTERVAL_FRAMES) != 0u) {
-        return;
+    if (game_state.current_level != LEVEL_DISPLAY_BOSS ||
+        game_state.area_mode != AREA_MODE_COMPONENT_INTERIOR) {
+        return 0u;
     }
+    for (uint8_t i = 0u; i < game_state.boss_dial_count; i++) {
+        BossDial_t* dial = &game_state.boss_dials[i];
 
-    for (uint8_t i = 0u; i < game_state.enemy_count; i++) {
-        if (game_state.enemies[i].active != 0u) {
-            move_enemy_toward_player(&game_state.enemies[i]);
+        if (dial->active == 0u || dial->disabled != 0u) {
+            continue;
         }
+        if (player_is_near_boss_dial(dial) == 0u) {
+            continue;
+        }
+        if (input->action_pressed == 0u) {
+            return 1u;
+        }
+
+        dial->disabled = 1u;
+        game_state.boss_dials_disabled++;
+
+        if (game_state.boss_dials_disabled >= game_state.boss_dial_count &&
+            game_state.display_restored == 0u) {
+            show_level_complete_dialogue();
+        }
+        return 1u;
     }
+    return 0u;
 }
 
-static uint8_t target_is_in_shot(int16_t target_x,
-                                 int16_t target_y,
-                                 uint8_t target_size,
-                                 int16_t* forward_distance)
+static uint8_t boss_is_in_shot(void)
 {
-    GameVector2i_t forward = get_player_forward_vector_int();
     int16_t player_center_x = entity_center(game_state.player.x, game_state.player.size);
     int16_t player_center_y = entity_center(game_state.player.y, game_state.player.size);
-    int16_t target_center_x = entity_center(target_x, target_size);
-    int16_t target_center_y = entity_center(target_y, target_size);
-    int16_t dx = (int16_t)(target_center_x - player_center_x);
-    int16_t dy = (int16_t)(target_center_y - player_center_y);
-    int16_t dot = (int16_t)((dx * forward.x) + (dy * forward.y));
-    int16_t cross = (int16_t)((dx * forward.y) - (dy * forward.x));
+    int16_t boss_center_x = entity_center(game_state.boss.x, BOSS_SIZE);
+    int16_t boss_center_y = entity_center(game_state.boss.y, BOSS_SIZE);
+    int16_t dx = (int16_t)(boss_center_x - player_center_x);
+    int16_t dy = (int16_t)(boss_center_y - player_center_y);
 
-    if (dot <= 0 || dot > (SHOT_RANGE * 8)) {
+    /*
+     * Simple final-demo shot check:
+     * the boss has to be roughly in the direction the player is facing and
+     * within range. No cone maths or projectile simulation.
+     */
+    switch (game_state.player.angle_degrees) {
+    case 0u:
+        return (uint8_t)(dx > 0 && dx <= SHOT_RANGE && abs_i16(dy) <= BOSS_SIZE);
+
+    case 90u:
+        return (uint8_t)(dy > 0 && dy <= SHOT_RANGE && abs_i16(dx) <= BOSS_SIZE);
+
+    case 180u:
+        return (uint8_t)(dx < 0 && abs_i16(dx) <= SHOT_RANGE && abs_i16(dy) <= BOSS_SIZE);
+
+    case 270u:
+        return (uint8_t)(dy < 0 && abs_i16(dy) <= SHOT_RANGE && abs_i16(dx) <= BOSS_SIZE);
+
+    default:
         return 0u;
     }
-
-    if (abs_i16(cross) > (SHOT_HALF_WIDTH * 8)) {
-        return 0u;
-    }
-
-    *forward_distance = dot;
-    return 1u;
-}
-
-static uint8_t enemy_is_in_shot(const Enemy_t* enemy, int16_t* forward_distance)
-{
-    return target_is_in_shot(enemy->x, enemy->y, ENEMY_SIZE, forward_distance);
-}
-
-static uint8_t boss_is_in_shot(const Boss_t* boss, int16_t* forward_distance)
-{
-    return target_is_in_shot(boss->x, boss->y, BOSS_SIZE, forward_distance);
 }
 
 static void fire_shot(void)
 {
-    uint8_t target_index = MAX_ENEMIES;
-    int16_t best_distance = (int16_t)(SHOT_RANGE * 8);
-
-    game_state.shot_cooldown = SHOT_COOLDOWN_FRAMES;
-    game_state.shot_flash = SHOT_FLASH_FRAMES;
-
-    for (uint8_t i = 0u; i < game_state.enemy_count; i++) {
-        int16_t forward_distance;
-
-        if (game_state.enemies[i].active == 0u) {
-            continue;
+    if (game_state.boss.active != 0u && game_state.boss.vulnerable == 0u) {
+        if (boss_is_in_shot() != 0u) {
+            start_story_dialogue_once(STORY_BOSS_INVULNERABLE, STORY_FLAG_BOSS_INVULN_DONE);
         }
-
-        if (enemy_is_in_shot(&game_state.enemies[i], &forward_distance) == 0u) {
-            continue;
-        }
-
-        if (forward_distance <= best_distance) {
-            best_distance = forward_distance;
-            target_index = i;
-        }
-    }
-
-    if (target_index < MAX_ENEMIES) {
-        Enemy_t* enemy = &game_state.enemies[target_index];
-
-        if (enemy->health > 0u) {
-            enemy->health--;
-        }
-
-        if (enemy->health == 0u) {
-            enemy->active = 0u;
-            add_debug_pulse_charge(DEBUG_PULSE_ENEMY_CHARGE);
-        }
-
         return;
     }
 
     if (game_state.boss.active != 0u && game_state.boss.vulnerable != 0u) {
-        int16_t boss_distance;
-
-        if (boss_is_in_shot(&game_state.boss, &boss_distance) != 0u) {
-            if (game_state.boss.health > 0u) {
-                game_state.boss.health--;
-            }
-
-            if (game_state.boss.health == 0u) {
-                game_state.boss.active = 0u;
-                game_state.boss.vulnerable = 0u;
-                sync_boss_flags();
-                enter_level_complete_state();
-                return;
-            }
-
-            sync_boss_flags();
+        if (boss_is_in_shot() != 0u) {
+            enter_ending_dialogue();
         }
-    }
-}
-
-static uint8_t enemy_is_in_debug_pulse_radius(const Enemy_t* enemy)
-{
-    int16_t player_center_x = entity_center(game_state.player.x, game_state.player.size);
-    int16_t player_center_y = entity_center(game_state.player.y, game_state.player.size);
-    int16_t enemy_center_x = entity_center(enemy->x, ENEMY_SIZE);
-    int16_t enemy_center_y = entity_center(enemy->y, ENEMY_SIZE);
-
-    return (uint8_t)(abs_i16((int16_t)(enemy_center_x - player_center_x)) <= DEBUG_PULSE_RADIUS &&
-                     abs_i16((int16_t)(enemy_center_y - player_center_y)) <= DEBUG_PULSE_RADIUS);
-}
-
-static void activate_debug_pulse(void)
-{
-    for (uint8_t i = 0u; i < game_state.enemy_count; i++) {
-        if (game_state.enemies[i].active == 0u) {
-            continue;
-        }
-
-        if (enemy_is_in_debug_pulse_radius(&game_state.enemies[i]) != 0u) {
-            game_state.enemies[i].active = 0u;
-            game_state.enemies[i].health = 0u;
-        }
-    }
-
-    game_state.debug_pulse_charge = 0u;
-    game_state.debug_pulse_ready = 0u;
-    game_state.debug_pulse_active_ticks = DEBUG_PULSE_ACTIVE_TICKS;
-}
-
-static void update_debug_pulse_ticks(void)
-{
-    if (game_state.debug_pulse_active_ticks > 0u) {
-        game_state.debug_pulse_active_ticks--;
     }
 }
 
@@ -730,97 +696,211 @@ static void update_display_corruption(void)
         } else if ((game_state.frame_count % DISPLAY_CORRUPTION_INTERVAL_FRAMES) == 0u) {
             game_state.display_corruption_ticks = DISPLAY_CORRUPTION_TICKS;
         }
+
     } else {
         game_state.display_corruption_ticks = 0u;
     }
 }
 
-static uint8_t update_debug_pulse(const GameInput_t* input, uint8_t repair_priority_active)
-{
-    if (repair_priority_active != 0u) {
-        return 0u;
-    }
-
-    if (game_state.debug_pulse_unlocked == 0u) {
-        return 0u;
-    }
-
-    if (input->action_pressed != 0u && game_state.debug_pulse_ready != 0u) {
-        activate_debug_pulse();
-        return 1u;
-    }
-
-    return 0u;
-}
-
 static void update_shooting(const GameInput_t* input, uint8_t action_consumed)
 {
-    if (game_state.shot_cooldown > 0u) {
-        game_state.shot_cooldown--;
-    }
-
-    if (game_state.shot_flash > 0u) {
-        game_state.shot_flash--;
-    }
-
     if (action_consumed != 0u) {
         return;
     }
 
-    if (input->action_pressed != 0u && game_state.shot_cooldown == 0u) {
+    if (input->action_pressed != 0u) {
         fire_shot();
     }
 }
 
-static uint8_t current_level_repair_goal_pending(void)
+/* -------------------------------------------------------------------------
+ * Overworld entrance / module exit checks
+ * ------------------------------------------------------------------------- */
+
+static uint8_t entrance_tile_to_level(uint8_t tile_value, CampaignLevel_t* level)
 {
-    if (game_state.current_level == LEVEL_LED_BAR) {
-        return (uint8_t)(game_state.led_bar_restored == 0u);
+    if (tile_value == OVERWORLD_TILE_SPEAKER &&
+        game_state.speaker_restored == 0u) {
+        *level = LEVEL_SPEAKER;
+        return 1u;
     }
 
-    if (game_state.current_level == LEVEL_SPEAKER) {
-        return (uint8_t)(game_state.speaker_restored == 0u);
+    if (tile_value == OVERWORLD_TILE_DISPLAY &&
+        game_state.speaker_restored != 0u &&
+        game_state.current_level != LEVEL_COMPLETE) {
+        *level = LEVEL_DISPLAY_BOSS;
+        return 1u;
     }
-
-    if (game_state.current_level == LEVEL_DISPLAY_BOSS) {
-        return (uint8_t)(game_state.display_restored == 0u);
-    }
-
     return 0u;
 }
 
-static void advance_dialogue(void)
+static uint8_t find_current_overworld_entrance(CampaignLevel_t* level)
 {
-    if (game_state.current_level == LEVEL_LED_BAR) {
-        start_level(LEVEL_SPEAKER);
-    } else if (game_state.current_level == LEVEL_SPEAKER) {
-        start_level(LEVEL_DISPLAY_BOSS);
-    } else if (game_state.current_level == LEVEL_DISPLAY_BOSS) {
-        game_state.run_state = GAME_STATE_PLAYING;
-        game_state.dialogue_title = game_get_level_name(game_state.current_level);
-        game_state.dialogue_message = "";
-    } else {
-        enter_level_complete_state();
+    int16_t player_center_x = entity_center(game_state.player.x, game_state.player.size);
+    int16_t player_center_y = entity_center(game_state.player.y, game_state.player.size);
+    uint8_t tile_x;
+    uint8_t tile_y;
+
+    if (player_center_x < 0 || player_center_y < 0) {
+        return 0u;
+    }
+
+    tile_x = (uint8_t)(player_center_x / GAME_TILE_SIZE);
+    tile_y = (uint8_t)(player_center_y / GAME_TILE_SIZE);
+
+    if (tile_x >= game_get_active_map_width() || tile_y >= game_get_active_map_height()) {
+        return 0u;
+    }
+
+    return entrance_tile_to_level(game_get_overworld_entrance_tile(tile_x, tile_y), level);
+}
+
+static void set_return_spawn(void)
+{
+    static const int8_t return_offsets[4][2] = {
+        {0, 1},
+        {1, 0},
+        {0, -1},
+        {-1, 0}
+    };
+
+    game_state.overworld_return_x = game_state.player.x;
+    game_state.overworld_return_y = game_state.player.y;
+
+    for (uint8_t i = 0u; i < 4u; i++) {
+        int16_t candidate_x = (int16_t)(game_state.player.x +
+                                        (return_offsets[i][0] * GAME_TILE_SIZE));
+        int16_t candidate_y = (int16_t)(game_state.player.y +
+                                        (return_offsets[i][1] * GAME_TILE_SIZE));
+        if (game_player_can_move_to(candidate_x, candidate_y) != 0u) {
+            game_state.overworld_return_x = candidate_x;
+            game_state.overworld_return_y = candidate_y;
+            return;
+        }
     }
 }
+
+static uint8_t module_exit_hit(void)
+{
+    const GeneratedMapData_t* map = get_active_map_data();
+    uint8_t tile_x;
+    uint8_t tile_y;
+
+    if (game_state.area_mode != AREA_MODE_COMPONENT_INTERIOR) {
+        return 0u;
+    }
+
+    if (player_center_tile(&tile_x, &tile_y) == 0u) {
+        return 0u;
+    }
+
+    for (uint8_t i = 0u; i < map->entity_count; i++) {
+        const GeneratedEntity_t* entity = &map->entities[i];
+
+        if (entity->type != GENERATED_ENTITY_MODULE_EXIT &&
+            entity->type != GENERATED_ENTITY_MODULE_ENTRANCE) {
+            continue;
+        }
+
+        if (abs_i16((int16_t)(tile_x - entity->tile_x)) <= 1 &&
+            abs_i16((int16_t)(tile_y - entity->tile_y)) <= 1) {
+            return 1u;
+        }
+    }
+    if (game_state.current_level == LEVEL_SPEAKER) {
+        return (uint8_t)(tile_x <= 1u);
+    }
+
+    if (game_state.current_level == LEVEL_DISPLAY_BOSS) {
+        return (uint8_t)(tile_x >= 23u && tile_y >= 27u);
+    }
+    return 0u;
+}
+
+static void update_overworld(const GameInput_t* input)
+{
+    CampaignLevel_t level;
+
+    move_player(input);
+
+    if (find_current_overworld_entrance(&level) != 0u) {
+        set_return_spawn();
+        start_level(level);
+    }
+}
+static void advance_dialogue(void)
+{
+    if (game_state.dialogue_sequence < STORY_SEQUENCE_COUNT) {
+        game_state.dialogue_index++;
+
+        if (game_state.dialogue_index < story_defs[game_state.dialogue_sequence].length) {
+            set_dialogue_line();
+            return;
+        }
+
+        /*
+         * The opening is chained in three short parts so the player sees the
+         * lab setup before being dropped into the circuit.
+         */
+        if (game_state.dialogue_sequence == STORY_LAB_INTRO) {
+            start_story_dialogue(STORY_INTRO);
+            return;
+        }
+
+        if (game_state.dialogue_sequence == STORY_INTRO) {
+            game_state.story_flags |= STORY_FLAG_INTRO_DONE;
+            start_story_dialogue(STORY_BOARD_ENTRY);
+            return;
+        }
+
+        if (game_state.dialogue_sequence == STORY_BOARD_ENTRY) {
+            game_state.story_flags |= STORY_FLAG_BOARD_DONE;
+            game_state.run_state = GAME_STATE_PLAYING;
+            game_state.dialogue_sequence = DIALOGUE_NONE;
+            return;
+        }
+
+        if (game_state.dialogue_sequence == STORY_ENDING) {
+            game_state.dialogue_sequence = DIALOGUE_NONE;
+            enter_level_complete_state();
+            return;
+        }
+
+        game_state.run_state = GAME_STATE_PLAYING;
+        game_state.dialogue_sequence = DIALOGUE_NONE;
+        game_state.dialogue_title = game_get_level_name(game_state.current_level);
+        game_state.dialogue_message = "";
+        return;
+    }
+}
+
+/* -------------------------------------------------------------------------
+ * Public game API
+ * ------------------------------------------------------------------------- */
 
 void game_init(void)
 {
     game_state.frame_count = 0u;
-    game_state.system_stability = PLAYER_MAX_STABILITY;
-    game_state.damage_cooldown = 0u;
-    game_state.shot_cooldown = 0u;
-    game_state.shot_flash = 0u;
-    game_state.debug_pulse_charge = 0u;
-    game_state.debug_pulse_ready = 0u;
-    game_state.debug_pulse_unlocked = 0u;
-    game_state.debug_pulse_active_ticks = 0u;
+    game_state.dialogue_sequence = DIALOGUE_NONE;
+    game_state.dialogue_index = 0u;
+    game_state.story_flags = 0u;
     game_state.last_input.move_x = 0;
     game_state.last_input.move_y = 0;
     game_state.last_input.action_down = 0u;
     game_state.last_input.action_pressed = 0u;
+    game_state.last_input.joy1_direction = CENTRE;
+    game_state.last_input.joy2_direction = CENTRE;
+
+    /*
+     * Player.c owns movement, but the wall lookup depends on whichever Tiled
+     * map is currently active. This callback connects those two pieces.
+     */
+    Map_Set_Wall_Check(game_map_is_wall_tile);
+
     reset_campaign_progress();
-    start_level(LEVEL_LED_BAR);
+    game_state.current_level = LEVEL_SPEAKER;
+    enter_overworld();
+    start_story_dialogue(STORY_LAB_INTRO);
 }
 
 void update_game(void)
@@ -831,35 +911,56 @@ void update_game(void)
     game_state.last_input = *input;
 
     if (game_state.run_state == GAME_STATE_PLAYING) {
-        uint8_t repair_priority_active;
-        uint8_t action_consumed;
+        uint8_t action_used = 0u;
 
-        update_debug_pulse_ticks();
+        if (game_state.area_mode == AREA_MODE_OVERWORLD) {
+            update_overworld(input);
+            return;
+        }
+
         update_display_corruption();
-        turn_player(input);
         move_player(input);
-        repair_priority_active = update_fault_repairs(input);
-        action_consumed = update_debug_pulse(input, repair_priority_active);
-        update_shooting(input, (uint8_t)(repair_priority_active || action_consumed));
+
+        if (module_exit_hit() != 0u) {
+            enter_overworld();
+            return;
+        }
+
+        if (update_removable_objects(input) != 0u) {
+            action_used = 1u;
+        }
+
+        if (update_boss_dials(input) != 0u) {
+            action_used = 1u;
+        }
+
+        update_shooting(input, action_used);
+
         if (game_state.run_state != GAME_STATE_PLAYING) {
             return;
         }
-        update_enemies();
-        apply_enemy_contact_damage();
 
-        if (game_state.all_faults_fixed != 0u &&
-            current_level_repair_goal_pending() != 0u) {
-            enter_current_level_completed_dialogue();
+        if (game_state.current_level == LEVEL_SPEAKER &&
+            game_state.speaker_restored == 0u &&
+            game_state.speaker_lint_count != 0u &&
+            game_state.speaker_lint_removed >= game_state.speaker_lint_count) {
+            show_level_complete_dialogue();
         }
+
     } else if (game_state.run_state == GAME_STATE_DIALOGUE) {
         if (input->action_pressed != 0u) {
             advance_dialogue();
         }
+
     } else {
         if (input->action_pressed != 0u) {
             reset_campaign_progress();
-            game_state.system_stability = PLAYER_MAX_STABILITY;
-            start_level(LEVEL_LED_BAR);
+            game_state.dialogue_sequence = DIALOGUE_NONE;
+            game_state.dialogue_index = 0u;
+            game_state.story_flags = 0u;
+            game_state.current_level = LEVEL_SPEAKER;
+            enter_overworld();
+            start_story_dialogue(STORY_LAB_INTRO);
         }
     }
 }
