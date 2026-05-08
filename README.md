@@ -1,4 +1,4 @@
-# STM32 Circuit Rescue Game
+# STM32 Debugging Game
 
 A 2D top-down embedded game built in C for the STM32 Nucleo-L476RG. The player is sent inside a broken circuit board, repairs the speaker module, disables cache nodes in the display controller, and defeats a final hardware bug.
 
