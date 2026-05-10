@@ -73,59 +73,59 @@ typedef struct {
     uint8_t tile_y;
     uint8_t active;
     uint8_t disabled;
-} BossDial_t;
+} Dial_t;
 
 typedef struct {
     uint8_t tile_x;
     uint8_t tile_y;
     uint8_t active;
     uint8_t type;
-} RemovableObject_t;
+} Lint_t;
 
 typedef struct {
-    uint32_t frame_count;
-    GameRunState_t run_state;
-    AreaMode_t area_mode;
-    CampaignLevel_t current_level;
+    uint32_t frame;
+    GameRunState_t screen;
+    AreaMode_t area;
+    CampaignLevel_t level;
 
     GamePlayer_t player;
-    int16_t overworld_return_x;
-    int16_t overworld_return_y;
+    int16_t return_x;
+    int16_t return_y;
 
-    uint8_t speaker_restored;
-    uint8_t display_restored;
-    uint8_t display_corruption_ticks;
+    uint8_t speaker_done;
+    uint8_t display_done;
+    uint8_t glitch_time;
 
     uint8_t speaker_task_done;
-    uint8_t speaker_lint_count;
-    uint8_t speaker_lint_removed;
+    uint8_t lint_total;
+    uint8_t lint_done;
 
-    uint8_t boss_dial_count;
-    uint8_t boss_dials_disabled;
+    uint8_t dial_total;
+    uint8_t dial_done;
 
-    uint8_t dialogue_sequence;
-    uint8_t dialogue_index;
-    uint16_t story_flags;
+    uint8_t talk_id;
+    uint8_t talk_line;
+    uint16_t story_done;
 
-    GameInput_t last_input;
+    GameInput_t input;
     Boss_t boss;
-    RemovableObject_t removable_objects[MAX_REMOVABLE_OBJECTS];
-    BossDial_t boss_dials[MAX_BOSS_DIALS];
+    Lint_t lint[MAX_REMOVABLE_OBJECTS];
+    Dial_t dials[MAX_BOSS_DIALS];
 
-    const char* dialogue_title;
-    const char* dialogue_message;
+    const char* talk_title;
+    const char* talk_text;
 } GameState_t;
 
-void game_init(void);
-void update_game(void);
-const GameState_t* game_get_state(void);
-const char* game_get_level_name(CampaignLevel_t level);
-uint8_t game_get_active_map_width(void);
-uint8_t game_get_active_map_height(void);
-int16_t game_get_active_world_width(void);
-int16_t game_get_active_world_height(void);
-uint8_t game_get_tile(uint8_t tile_x, uint8_t tile_y);
-uint8_t game_get_object_tile(uint8_t tile_x, uint8_t tile_y);
-uint8_t game_get_overworld_entrance_tile(uint8_t tile_x, uint8_t tile_y);
+void start_game(void);
+void play_game(void);
+const GameState_t* get_game(void);
+const char* get_level_name(CampaignLevel_t level);
+uint8_t map_w(void);
+uint8_t map_h(void);
+int16_t world_w(void);
+int16_t world_h(void);
+uint8_t ground_at(uint8_t tile_x, uint8_t tile_y);
+uint8_t thing_at(uint8_t tile_x, uint8_t tile_y);
+uint8_t door_at(uint8_t tile_x, uint8_t tile_y);
 
 #endif /* GAME_H */

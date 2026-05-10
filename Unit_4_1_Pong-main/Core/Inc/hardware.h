@@ -5,7 +5,7 @@
 
 #include "game.h"
 
-void hardware_init(void);
-void hardware_update(const GameState_t* game);
+void start_extra_stuff(void);
+void update_extra_stuff(const GameState_t* game);
 
 #endif /* HARDWARE_H */

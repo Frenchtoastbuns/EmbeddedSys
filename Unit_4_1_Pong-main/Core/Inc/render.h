@@ -3,7 +3,7 @@
 
 /* LCD renderer entry points used by main.c. */
 
-void render_init(void);
-void render_frame(void);
+void start_screen(void);
+void draw_screen(void);
 
 #endif /* RENDER_H */

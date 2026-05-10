@@ -16,7 +16,7 @@
  */
 #define MOVE_SPEED_FP 32
 
-void Player_Update(Player_t* player, Joystick_t* joy1, Joystick_t* joy2)
+void move_player_driver(Player_t* player, Joystick_t* joy1, Joystick_t* joy2)
 {
     int16_t new_x = player->x_fp;
     int16_t new_y = player->y_fp;
@@ -37,11 +37,11 @@ void Player_Update(Player_t* player, Joystick_t* joy1, Joystick_t* joy2)
     }
 
     /* Check X and Y separately so the player can slide along walls. */
-    if (!Map_Is_Wall((int)(new_x / PLAYER_FP_SCALE),
+    if (!is_wall((int)(new_x / PLAYER_FP_SCALE),
                      (int)(player->y_fp / PLAYER_FP_SCALE))) {
         player->x_fp = new_x;
     }
-    if (!Map_Is_Wall((int)(player->x_fp / PLAYER_FP_SCALE),
+    if (!is_wall((int)(player->x_fp / PLAYER_FP_SCALE),
                      (int)(new_y / PLAYER_FP_SCALE))) {
         player->y_fp = new_y;
     }

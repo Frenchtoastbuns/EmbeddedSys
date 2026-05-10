@@ -15,8 +15,8 @@ typedef struct {
     uint8_t action_pressed; /* 1 for one frame on a new press */
 } GameInput_t;
 
-void input_init(void);
-void read_input(void);
-const GameInput_t* input_get_state(void);
+void start_input(void);
+void read_buttons(void);
+const GameInput_t* get_input(void);
 
 #endif /* INPUT_H */

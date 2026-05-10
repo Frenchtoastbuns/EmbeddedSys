@@ -8,11 +8,11 @@
  * external hardware side effects.
  */
 
-void hardware_init(void)
+void start_extra_stuff(void)
 {
 }
 
-void hardware_update(const GameState_t *game)
+void update_extra_stuff(const GameState_t *game)
 {
     (void)game;
 }

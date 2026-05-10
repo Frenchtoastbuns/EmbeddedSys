@@ -1,10 +1,10 @@
 // STM32 board repair game
 // =======================
 // Main loop used by the demo:
-//   read_input()
-//   update_game()
-//   hardware_update()
-//   render_frame()
+//   read_buttons()
+//   play_game()
+//   update_extra_stuff()
+//   draw_screen()
 
 #include "main.h"
 #include "gpio.h"
@@ -37,7 +37,7 @@ int _write(int file, char *ptr, int len)
     return len;
 }
 
-static void init_board(void)
+static void setup_board(void)
 {
     HAL_Init();
     SystemClock_Config();
@@ -55,17 +55,17 @@ static void init_board(void)
     MX_USART2_UART_Init();
     MX_ADC1_Init();
 
-    render_init();
-    input_init();
-    game_init();
+    start_screen();
+    start_input();
+    start_game();
 
     /* Optional external hardware is disabled for this final demo. */
-    hardware_init();
+    start_extra_stuff();
 
     printf("Board repair game ready.\r\n");
 }
 
-static uint8_t game_frame_due(uint32_t* last_tick)
+static uint8_t time_for_frame(uint32_t* last_tick)
 {
     uint32_t now = HAL_GetTick();
 
@@ -77,22 +77,22 @@ static uint8_t game_frame_due(uint32_t* last_tick)
     return 1u;
 }
 
-static void run_game_frame(void)
+static void game_loop_once(void)
 {
-    read_input();
-    update_game();
+    read_buttons();
+    play_game();
 
     /* Kept as a no-op hook so the loop stays simple. */
-    hardware_update(game_get_state());
+    update_extra_stuff(get_game());
 
-    render_frame();
+    draw_screen();
 }
 
 int main(void)
 {
     uint32_t last_tick;
 
-    init_board();
+    setup_board();
     last_tick = HAL_GetTick();
 
     /*
@@ -104,8 +104,8 @@ int main(void)
      */
     while (1)
     {
-        if (game_frame_due(&last_tick) != 0u) {
-            run_game_frame();
+        if (time_for_frame(&last_tick) != 0u) {
+            game_loop_once();
         }
     }
 }

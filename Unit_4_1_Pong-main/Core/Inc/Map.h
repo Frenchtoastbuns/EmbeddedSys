@@ -5,7 +5,7 @@
 
 #include <stdint.h>
 
-void Map_Set_Wall_Check(uint8_t (*check)(int tile_x, int tile_y));
-int Map_Is_Wall(int tile_x, int tile_y);
+void set_wall_checker(uint8_t (*check)(int tile_x, int tile_y));
+int is_wall(int tile_x, int tile_y);
 
 #endif /* MAP_H */

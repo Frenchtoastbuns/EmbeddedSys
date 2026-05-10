@@ -33,6 +33,6 @@ typedef struct {
     uint8_t  health;
 } Player_t;
 
-void Player_Update(Player_t* player, Joystick_t* joy1, Joystick_t* joy2);
+void move_player_driver(Player_t* player, Joystick_t* joy1, Joystick_t* joy2);
 
 #endif /* PLAYER_H */
