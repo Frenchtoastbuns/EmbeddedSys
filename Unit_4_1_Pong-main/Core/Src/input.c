@@ -52,6 +52,7 @@ static int8_t maybe_x = 0, maybe_y = 0;
 static uint8_t maybe_x_count = 0u, maybe_y_count = 0u;
 static Direction last_dir = CENTRE;
 
+/* reads one ADC channel from the joystick */
 static uint16_t read_stick(uint32_t channel)
 {
     uint16_t val;
@@ -66,6 +67,7 @@ static uint16_t read_stick(uint32_t channel)
     return val;
 }
 
+/* turns an ADC difference into -1, 0, or 1 */
 static int8_t stick_dir(int16_t delta)
 {
     if (delta > (int16_t)INPUT_JOYSTICK_DEADZONE) {
@@ -77,6 +79,7 @@ static int8_t stick_dir(int16_t delta)
     return 0;
 }
 
+/* turns the x/y stick values into one direction */
 static Direction make_stick_dir(int8_t x, int8_t y)
 {
     /*
@@ -108,6 +111,7 @@ static Direction make_stick_dir(int8_t x, int8_t y)
     return last_dir;
 }
 
+/* waits for a direction to be steady before using it */
 static int8_t smooth_stick(int8_t raw, int8_t* filtered, int8_t* pending, uint8_t* count)
 {
     /* A direction has to appear for a few reads before it is accepted. */
@@ -137,11 +141,13 @@ static int8_t smooth_stick(int8_t raw, int8_t* filtered, int8_t* pending, uint8_
     return *filtered;
 }
 
+/* reads the action button pin */
 static uint8_t button_is_down(void)
 {
     return (uint8_t)(HAL_GPIO_ReadPin(INPUT_ACTION_GPIO_Port, INPUT_ACTION_Pin) == GPIO_PIN_RESET);
 }
 
+/* sets up the action button pin as input pull-up */
 static void setup_button(void)
 {
     GPIO_InitTypeDef GPIO_InitStruct = {0};
@@ -155,6 +161,7 @@ static void setup_button(void)
     HAL_GPIO_Init(INPUT_ACTION_GPIO_Port, &GPIO_InitStruct);
 }
 
+/* starts the joystick and button input code */
 void start_input(void)
 {
     uint32_t sx = 0u, sy = 0u;
@@ -193,6 +200,7 @@ void start_input(void)
     button_time = HAL_GetTick();
 }
 
+/* updates the input state for this frame */
 void read_buttons(void)
 {
     uint16_t x_raw = read_stick(stick.x_channel);
@@ -223,6 +231,7 @@ void read_buttons(void)
     input.action_down = old_button;
 }
 
+/* gives game.c the latest input values */
 const GameInput_t* get_input(void)
 {
     return &input;

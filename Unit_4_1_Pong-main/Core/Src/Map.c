@@ -10,11 +10,13 @@
 
 static uint8_t (*map_wall_check)(int tile_x, int tile_y);
 
+/* gives Player.c a way to ask if a tile is a wall */
 void set_wall_checker(uint8_t (*check)(int tile_x, int tile_y))
 {
     map_wall_check = check;
 }
 
+/* asks the current wall checker if a tile blocks movement */
 int is_wall(int tile_x, int tile_y)
 {
     if (map_wall_check == 0) {

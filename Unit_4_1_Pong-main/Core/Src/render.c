@@ -79,6 +79,7 @@ typedef struct {
     int16_t y;
 } TopdownCamera_t;
 
+/* keeps an x coordinate inside the LCD */
 static uint16_t keep_x(int16_t value)
 {
     if (value < 0) {
@@ -92,6 +93,7 @@ static uint16_t keep_x(int16_t value)
     return (uint16_t)value;
 }
 
+/* keeps a y coordinate inside the LCD */
 static uint16_t keep_y(int16_t value)
 {
     if (value < 0) {
@@ -105,11 +107,13 @@ static uint16_t keep_y(int16_t value)
     return (uint16_t)value;
 }
 
+/* absolute value helper for drawing maths */
 static int32_t abs32(int32_t value)
 {
     return (value < 0) ? -value : value;
 }
 
+/* draws the boss glitch blocks on top of the screen */
 static void draw_glitch(const GameState_t* game)
 {
     if (game->glitch_time == 0u) {
@@ -130,6 +134,7 @@ static void draw_glitch(const GameState_t* game)
 }
 
 
+/* makes the camera follow the player */
 static TopdownCamera_t get_camera(const GameState_t* game)
 {
     TopdownCamera_t camera;
@@ -164,6 +169,7 @@ static TopdownCamera_t get_camera(const GameState_t* game)
     return camera;
 }
 
+/* draws a rectangle clipped to the LCD edges */
 static void draw_cut_rect(int16_t x,
                               int16_t y,
                               int16_t width,
@@ -196,6 +202,7 @@ static void draw_cut_rect(int16_t x,
     LCD_Draw_Rect((uint16_t)x, (uint16_t)y, (uint16_t)width, (uint16_t)height, colour, fill);
 }
 
+/* draws a world rectangle using the camera */
 static void draw_world_box(const TopdownCamera_t* camera,
                                    int16_t world_x,
                                    int16_t world_y,
@@ -213,17 +220,21 @@ static void draw_world_box(const TopdownCamera_t* camera,
     draw_cut_rect(screen_x, screen_y, screen_w, screen_h, colour, fill);
 }
 
+/* converts world x into screen x */
 static uint16_t to_screen_x(const TopdownCamera_t* camera, int16_t world_x)
 {
     return keep_x((int16_t)((world_x - camera->x) * TOPDOWN_SCALE));
 }
 
+/* converts world y into screen y */
 static uint16_t to_screen_y(const TopdownCamera_t* camera, int16_t world_y)
 {
+/* keeps a y coordinate inside the LCD */
     return keep_y((int16_t)(TOPDOWN_HUD_HEIGHT +
                                     ((world_y - camera->y) * TOPDOWN_SCALE)));
 }
 
+/* picks which tile art theme to use */
 static TilesetTheme_t tile_theme(const GameState_t* game)
 {
     if (game->area == AREA_MODE_OVERWORLD) {
@@ -241,6 +252,7 @@ static TilesetTheme_t tile_theme(const GameState_t* game)
     return TILESET_SPEAKER;
 }
 
+/* maps a wall tile to its top picture */
 static LogicalTileId_t wall_top_tile(uint8_t tile)
 {
     if (tile == TILE_WALL_BOSS_CORE) {
@@ -254,6 +266,7 @@ static LogicalTileId_t wall_top_tile(uint8_t tile)
     return TILE_WALL_TOP;
 }
 
+/* maps a wall tile to its front picture */
 static LogicalTileId_t wall_front_tile(uint8_t tile)
 {
     if (tile == TILE_WALL_BOSS_CORE) {
@@ -279,6 +292,7 @@ static const uint8_t asset_scale_20_to_16[20] = {
     8u, 8u, 9u, 10u, 11u, 12u, 12u, 13u, 14u, 15u
 };
 
+/* splits LCD RGB565 colour into rough RGB parts */
 static void split_colour(uint16_t colour, uint8_t* r, uint8_t* g, uint8_t* b)
 {
     uint16_t rgb = (uint16_t)((colour >> 8) | (colour << 8));
@@ -291,6 +305,7 @@ static void split_colour(uint16_t colour, uint8_t* r, uint8_t* g, uint8_t* b)
     *b = (uint8_t)((b5 << 3) | (b5 >> 2));
 }
 
+/* splits normal sprite RGB565 colour */
 static void split_sprite_colour(uint16_t colour, uint8_t* r, uint8_t* g, uint8_t* b)
 {
     uint8_t r5 = (uint8_t)((colour >> 11) & 0x1Fu);
@@ -302,6 +317,7 @@ static void split_sprite_colour(uint16_t colour, uint8_t* r, uint8_t* g, uint8_t
     *b = (uint8_t)((b5 << 3) | (b5 >> 2));
 }
 
+/* turns a tile colour into the LCD palette index */
 static uint8_t get_colour(uint16_t colour)
 {
     /*
@@ -365,6 +381,7 @@ static uint8_t get_colour(uint16_t colour)
     return best_index;
 }
 
+/* turns sprite colour into the LCD palette index */
 static uint8_t get_sprite_colour(uint16_t colour)
 {
     /*
@@ -406,6 +423,7 @@ static uint8_t get_sprite_colour(uint16_t colour)
     return best_index;
 }
 
+/* draws one converted tile picture */
 static uint8_t draw_tile_pic(const TopdownCamera_t* camera,
                                       int16_t world_x,
                                       int16_t world_y,
@@ -473,6 +491,7 @@ static uint8_t draw_tile_pic(const TopdownCamera_t* camera,
     return 1u;
 }
 
+/* draws a tile picture if one exists */
 static uint8_t draw_tile_pic_if_any(const GameState_t* game,
                                                     const TopdownCamera_t* camera,
                                                     LogicalTileId_t logical_tile,
@@ -484,6 +503,7 @@ static uint8_t draw_tile_pic_if_any(const GameState_t* game,
     return draw_tile_pic(camera, world_x, world_y, GAME_TILE_SIZE, GAME_TILE_SIZE, asset);
 }
 
+/* draws a tile picture by its raw map id */
 static uint8_t draw_tile_id_if_any(const GameState_t* game,
                                                        const TopdownCamera_t* camera,
                                                        uint8_t tile_id,
@@ -495,6 +515,7 @@ static uint8_t draw_tile_id_if_any(const GameState_t* game,
     return draw_tile_pic(camera, world_x, world_y, GAME_TILE_SIZE, GAME_TILE_SIZE, asset);
 }
 
+/* stretches a tile picture over a small area */
 static uint8_t draw_tile_area_if_any(const GameState_t* game,
                                                       const TopdownCamera_t* camera,
                                                       LogicalTileId_t logical_tile,
@@ -508,6 +529,7 @@ static uint8_t draw_tile_area_if_any(const GameState_t* game,
     return draw_tile_pic(camera, world_x, world_y, world_width, world_height, asset);
 }
 
+/* draws one sprite frame and skips transparent pixels */
 static uint8_t draw_sprite_pic(int16_t screen_x,
                                         int16_t screen_y,
                                         const SpriteFrame_t* frame,
@@ -554,6 +576,7 @@ static uint8_t draw_sprite_pic(int16_t screen_x,
     return 1u;
 }
 
+/* chooses and draws a sprite animation frame */
 static uint8_t draw_sprite_move(SpriteAnimationId_t animation_id,
                                             uint8_t frame_tick,
                                             int16_t screen_x,
@@ -586,6 +609,7 @@ static uint8_t draw_sprite_move(SpriteAnimationId_t animation_id,
 #endif
 }
 
+/* chooses the right player animation */
 static SpriteAnimationId_t player_pic_id(const GameState_t* game)
 {
     if (game->player.angle_degrees == 270u) {
@@ -599,6 +623,7 @@ static SpriteAnimationId_t player_pic_id(const GameState_t* game)
     return SPRITE_ANIM_PLAYER_WALK_RIGHT;
 }
 
+/* draws the player sprite if sprite art is available */
 static uint8_t draw_player_pic(const GameState_t* game,
                                           const TopdownCamera_t* camera)
 {
@@ -626,6 +651,7 @@ static uint8_t draw_player_pic(const GameState_t* game,
     screen_x = (int16_t)(screen_x - (first_frame->width / 2));
     screen_y = (int16_t)(screen_y - first_frame->height);
 
+/* chooses and draws a sprite animation frame */
     return draw_sprite_move(animation_id,
                                         (uint8_t)game->frame,
                                         screen_x,
@@ -639,6 +665,7 @@ static uint8_t draw_player_pic(const GameState_t* game,
 #endif
 }
 
+/* draws the boss sprite if sprite art is available */
 static uint8_t draw_boss_pic(const GameState_t* game,
                                         const TopdownCamera_t* camera)
 {
@@ -663,6 +690,7 @@ static uint8_t draw_boss_pic(const GameState_t* game,
     screen_x = (int16_t)(screen_x - (first_frame->width / 2));
     screen_y = (int16_t)(screen_y - first_frame->height);
 
+/* chooses and draws a sprite animation frame */
     return draw_sprite_move(SPRITE_ANIM_BOSS_IDLE,
                                         (uint8_t)game->frame,
                                         screen_x,
@@ -678,6 +706,7 @@ static uint8_t draw_boss_pic(const GameState_t* game,
 
 static uint8_t wall_mark_colour(uint8_t tile);
 
+/* fallback floor colour for the current area */
 static uint8_t floor_colour(const GameState_t* game)
 {
     if (game->area == AREA_MODE_OVERWORLD) {
@@ -695,6 +724,7 @@ static uint8_t floor_colour(const GameState_t* game)
     return TD_NAVY;
 }
 
+/* fallback colour for overworld tile ids */
 static uint8_t board_colour(uint8_t tile_id, uint8_t layer)
 {
     static const uint8_t ground_palette[6] = {
@@ -715,6 +745,7 @@ static uint8_t board_colour(uint8_t tile_id, uint8_t layer)
     return object_palette[tile_id % 6u];
 }
 
+/* draws one overworld tile */
 static void draw_board_tile(const GameState_t* game,
                                         const TopdownCamera_t* camera,
                                         uint8_t tile_x,
@@ -752,6 +783,7 @@ static void draw_board_tile(const GameState_t* game,
 
 }
 
+/* draws one object layer tile */
 static void draw_object_tile(const GameState_t* game,
                                                const TopdownCamera_t* camera,
                                                uint8_t tile,
@@ -785,6 +817,7 @@ static void draw_object_tile(const GameState_t* game,
     }
 }
 
+/* fallback wall top colour */
 static uint8_t wall_colour(uint8_t tile)
 {
     if (tile == TILE_WALL_AUDIO) {
@@ -806,6 +839,7 @@ static uint8_t wall_colour(uint8_t tile)
     return TD_BROWN;
 }
 
+/* small wall detail colour */
 static uint8_t wall_mark_colour(uint8_t tile)
 {
     if (tile == TILE_WALL_AUDIO) {
@@ -823,6 +857,7 @@ static uint8_t wall_mark_colour(uint8_t tile)
     return TD_GREY;
 }
 
+/* darker colour for wall fronts */
 static uint8_t wall_front_colour(uint8_t tile)
 {
     if (tile == TILE_WALL_AUDIO) {
@@ -844,6 +879,7 @@ static uint8_t wall_front_colour(uint8_t tile)
     return TD_BLACK;
 }
 
+/* checks if a tile is just decoration */
 static uint8_t is_decor_tile(uint8_t tile)
 {
     return (uint8_t)(tile == TILE_RESTORED_FLOOR ||
@@ -851,6 +887,7 @@ static uint8_t is_decor_tile(uint8_t tile)
                      tile == TILE_ACTIVE_AUDIO_PATH);
 }
 
+/* checks if a tile should look raised */
 static uint8_t is_raised_tile(const GameState_t* game, uint8_t tile)
 {
     (void)tile;
@@ -862,6 +899,7 @@ static uint8_t is_raised_tile(const GameState_t* game, uint8_t tile)
     return 0u;
 }
 
+/* draws small decorative tile details */
 static void draw_decor_tile(const GameState_t* game,
                                     const TopdownCamera_t* camera,
                                     uint8_t tile,
@@ -926,6 +964,7 @@ static void draw_decor_tile(const GameState_t* game,
     }
 }
 
+/* draws the floor and object tile at one spot */
 static void draw_floor_tile(const GameState_t* game,
                                     const TopdownCamera_t* camera,
                                     uint8_t tile_x,
@@ -988,6 +1027,7 @@ static void draw_floor_tile(const GameState_t* game,
     draw_object_tile(game, camera, object_tile, world_x, world_y);
 }
 
+/* draws the top face of a raised wall */
 static void draw_wall_top(const GameState_t* game,
                                   const TopdownCamera_t* camera,
                                   uint8_t tile,
@@ -1025,6 +1065,7 @@ static void draw_wall_top(const GameState_t* game,
                            1u);
 }
 
+/* draws the front face of a raised wall */
 static void draw_wall_front(const GameState_t* game,
                                     const TopdownCamera_t* camera,
                                     uint8_t tile,
@@ -1060,6 +1101,7 @@ static void draw_wall_front(const GameState_t* game,
                            1u);
 }
 
+/* draws floors and wall tops first */
 static void draw_floor_and_tops(const GameState_t* game, const TopdownCamera_t* camera)
 {
     uint8_t start_x = (uint8_t)(camera->x / GAME_TILE_SIZE);
@@ -1092,6 +1134,7 @@ static void draw_floor_and_tops(const GameState_t* game, const TopdownCamera_t* 
     }
 }
 
+/* draws wall fronts one map row at a time */
 static void draw_wall_row(const GameState_t* game,
                                              const TopdownCamera_t* camera,
                                              uint8_t tile_y)
@@ -1122,6 +1165,7 @@ static void draw_wall_row(const GameState_t* game,
     }
 }
 
+/* fallback player drawing if sprite art is missing */
 static void draw_player_box(const GameState_t* game, const TopdownCamera_t* camera)
 {
     int16_t body_x = (int16_t)(game->player.x - 1);
@@ -1180,6 +1224,7 @@ static void draw_player_box(const GameState_t* game, const TopdownCamera_t* came
     }
 }
 
+/* draws active lint pieces on this row */
 static void draw_lint_row(const GameState_t* game,
                                                    const TopdownCamera_t* camera,
                                                    uint8_t row)
@@ -1206,6 +1251,7 @@ static void draw_lint_row(const GameState_t* game,
     }
 }
 
+/* draws boss dials on this row */
 static void draw_dial_row(const GameState_t* game,
                                             const TopdownCamera_t* camera,
                                             uint8_t row)
@@ -1250,6 +1296,7 @@ static void draw_dial_row(const GameState_t* game,
     }
 }
 
+/* draws the boss in the correct row order */
 static void draw_boss_row(const GameState_t* game,
                                       const TopdownCamera_t* camera,
                                       uint8_t row)
@@ -1300,6 +1347,7 @@ static void draw_boss_row(const GameState_t* game,
                            1u);
 }
 
+/* draws the player in the correct row order */
 static void draw_player_row(const GameState_t* game,
                                         const TopdownCamera_t* camera,
                                         uint8_t row)
@@ -1311,6 +1359,7 @@ static void draw_player_row(const GameState_t* game,
     }
 }
 
+/* draws small action prompts near objectives */
 static void draw_prompt(const GameState_t* game)
 {
     int16_t player_x = (int16_t)(game->player.x + (game->player.size / 2));
@@ -1356,6 +1405,7 @@ static void draw_prompt(const GameState_t* game)
 
 }
 
+/* draws the scrolling top-down game screen */
 static void draw_map_screen(const GameState_t* game)
 {
     TopdownCamera_t camera = get_camera(game);
@@ -1381,11 +1431,13 @@ static void draw_map_screen(const GameState_t* game)
     draw_prompt(game);
 }
 
+/* draws the normal gameplay view */
 static void draw_game(const GameState_t* game)
 {
     draw_map_screen(game);
 }
 
+/* draws the dialogue box */
 static void draw_talk_box(const GameState_t* game)
 {
     const char* text = game->talk_text;
@@ -1425,6 +1477,7 @@ static void draw_talk_box(const GameState_t* game)
     LCD_printString("A", 218u, DIALOGUE_ACTION_Y, TD_GOLD, 1u);
 }
 
+/* draws the final restored screen */
 static void draw_done_screen(const GameState_t* game)
 {
     LCD_Draw_Rect(10u, 112u, 220u, 84u, 3u, 0u);
@@ -1433,6 +1486,7 @@ static void draw_done_screen(const GameState_t* game)
     LCD_printString("Press action", 82u, 176u, 14u, 1u);
 }
 
+/* starts the LCD renderer */
 void start_screen(void)
 {
     LCD_init(&lcd_cfg);
@@ -1441,6 +1495,7 @@ void start_screen(void)
     LCD_Refresh(&lcd_cfg);
 }
 
+/* draws one whole frame */
 void draw_screen(void)
 {
     const GameState_t* game = get_game();

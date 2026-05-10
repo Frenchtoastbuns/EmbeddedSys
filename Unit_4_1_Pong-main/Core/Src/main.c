@@ -25,6 +25,7 @@ void PeriphCommonClock_Config(void);
 #define GAME_TARGET_FPS          60u
 #define GAME_FRAME_TIME_MS       (1000u / GAME_TARGET_FPS)
 
+/* redirects printf to UART2 for quick debugging */
 int _write(int file, char *ptr, int len)
 {
     (void)file;
@@ -37,6 +38,7 @@ int _write(int file, char *ptr, int len)
     return len;
 }
 
+/* starts HAL, pins, input, game, and the LCD */
 static void setup_board(void)
 {
     HAL_Init();
@@ -65,6 +67,7 @@ static void setup_board(void)
     printf("Board repair game ready.\r\n");
 }
 
+/* checks if enough time passed for the next frame */
 static uint8_t time_for_frame(uint32_t* last_tick)
 {
     uint32_t now = HAL_GetTick();
@@ -77,6 +80,7 @@ static uint8_t time_for_frame(uint32_t* last_tick)
     return 1u;
 }
 
+/* runs one simple game frame */
 static void game_loop_once(void)
 {
     read_buttons();
@@ -88,6 +92,7 @@ static void game_loop_once(void)
     draw_screen();
 }
 
+/* normal STM32 main loop */
 int main(void)
 {
     uint32_t last_tick;
@@ -115,6 +120,7 @@ int main(void)
  * I left these alone unless CubeMX needs to regenerate them.
  */
 
+/* CubeMX clock setup for the board */
 void SystemClock_Config(void)
 {
     RCC_OscInitTypeDef RCC_OscInitStruct = {0};
@@ -157,6 +163,7 @@ void SystemClock_Config(void)
     }
 }
 
+/* CubeMX peripheral clock setup */
 void PeriphCommonClock_Config(void)
 {
     RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
@@ -180,6 +187,7 @@ void PeriphCommonClock_Config(void)
     }
 }
 
+/* stops here if the board setup fails */
 void Error_Handler(void)
 {
     __disable_irq();
@@ -190,6 +198,7 @@ void Error_Handler(void)
 }
 
 #ifdef USE_FULL_ASSERT
+/* used by full assert builds */
 void assert_failed(uint8_t *file, uint32_t line)
 {
     (void)file;

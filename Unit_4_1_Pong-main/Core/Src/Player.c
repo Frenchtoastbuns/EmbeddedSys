@@ -16,6 +16,7 @@
  */
 #define MOVE_SPEED_FP 32
 
+/* old movement helper kept for the player driver file */
 void move_player_driver(Player_t* player, Joystick_t* joy1, Joystick_t* joy2)
 {
     int16_t new_x = player->x_fp;

@@ -34,6 +34,7 @@ static const char system_restored_message[] = "All hardware online";
  * Map lookup helpers
  * ------------------------------------------------------------------------- */
 
+/* checks if this map tile should block the player */
 static uint8_t wall_tile(int tile_x, int tile_y)
 {
     if (tile_x < 0 || tile_y < 0 ||
@@ -45,6 +46,7 @@ static uint8_t wall_tile(int tile_x, int tile_y)
                                              (uint8_t)tile_y) != 0u);
 }
 
+/* picks which generated map the game is using right now */
 static GeneratedMapId_t which_map(void)
 {
     if (game_state.area == AREA_MODE_OVERWORLD) {
@@ -59,31 +61,37 @@ static GeneratedMapId_t which_map(void)
     return GENERATED_MAP_SPEAKER;
 }
 
+/* gets the active map data */
 static const GeneratedMapData_t* map_now(void)
 {
     return generated_map_get(which_map());
 }
 
+/* gives render.c the current map width */
 uint8_t map_w(void)
 {
     return map_now()->width;
 }
 
+/* gives render.c the current map height */
 uint8_t map_h(void)
 {
     return map_now()->height;
 }
 
+/* gets the map width in pixels */
 int16_t world_w(void)
 {
     return (int16_t)(map_w() * GAME_TILE_SIZE);
 }
 
+/* gets the map height in pixels */
 int16_t world_h(void)
 {
     return (int16_t)(map_h() * GAME_TILE_SIZE);
 }
 
+/* reads the collision layer at one tile */
 static uint8_t wall_at(uint8_t tile_x, uint8_t tile_y)
 {
     const GeneratedMapData_t* map = map_now();
@@ -96,6 +104,7 @@ static uint8_t wall_at(uint8_t tile_x, uint8_t tile_y)
     return generated_map_tile_at(map, map->collision, tile_x, tile_y);
 }
 
+/* reads the ground tile for drawing */
 uint8_t ground_at(uint8_t tile_x, uint8_t tile_y)
 {
     const GeneratedMapData_t* map = map_now();
@@ -108,6 +117,7 @@ uint8_t ground_at(uint8_t tile_x, uint8_t tile_y)
     return generated_map_tile_at(map, map->ground, tile_x, tile_y);
 }
 
+/* reads the object layer tile for drawing */
 uint8_t thing_at(uint8_t tile_x, uint8_t tile_y)
 {
     const GeneratedMapData_t* map = map_now();
@@ -120,6 +130,7 @@ uint8_t thing_at(uint8_t tile_x, uint8_t tile_y)
     return generated_map_tile_at(map, map->objects, tile_x, tile_y);
 }
 
+/* checks if an overworld tile is a module door */
 uint8_t door_at(uint8_t tile_x, uint8_t tile_y)
 {
     const GeneratedMapData_t* map = generated_map_get(GENERATED_MAP_OVERWORLD);
@@ -141,6 +152,7 @@ uint8_t door_at(uint8_t tile_x, uint8_t tile_y)
     return OVERWORLD_TILE_EMPTY;
 }
 
+/* returns the short name for the current level */
 const char* get_level_name(CampaignLevel_t level)
 {
     switch (level) {
@@ -159,21 +171,25 @@ const char* get_level_name(CampaignLevel_t level)
  * Small math / position helpers
  * ------------------------------------------------------------------------- */
 
+/* small absolute value helper for signed 16 bit numbers */
 static int16_t abs16(int16_t value)
 {
     return (value < 0) ? (int16_t)-value : value;
 }
 
+/* converts a tile position into a player pixel position */
 static int16_t tile_pixel(uint8_t tile)
 {
     return (int16_t)((tile * GAME_TILE_SIZE) + ((GAME_TILE_SIZE - GAME_PLAYER_SIZE) / 2));
 }
 
+/* converts a tile position for bigger sprites like the boss */
 static int16_t tile_to_pixel_for(uint8_t tile, uint8_t size)
 {
     return (int16_t)((tile * GAME_TILE_SIZE) + ((GAME_TILE_SIZE - size) / 2));
 }
 
+/* moves the player to the spawn point for the current map */
 static void put_player_here(void)
 {
     GeneratedEntity_t entity;
@@ -193,16 +209,19 @@ static void put_player_here(void)
     game_state.player.angle_degrees = 0u;
 }
 
+/* gets the middle pixel of a tile */
 static int16_t tile_middle(uint8_t tile)
 {
     return (int16_t)((tile * GAME_TILE_SIZE) + (GAME_TILE_SIZE / 2));
 }
 
+/* gets the centre of a small sprite or object */
 static int16_t mid(int16_t position, uint8_t size)
 {
     return (int16_t)(position + (size / 2));
 }
 
+/* finds the tile under the player centre */
 static uint8_t player_spot(uint8_t* tile_x, uint8_t* tile_y)
 {
     int16_t player_x = mid(game_state.player.x, game_state.player.size);
@@ -227,6 +246,7 @@ static uint8_t player_spot(uint8_t* tile_x, uint8_t* tile_y)
  * Speaker task state
  * ------------------------------------------------------------------------- */
 
+/* resets the speaker lint list before loading a level */
 static void clear_lint_list(void)
 {
     game_state.lint_total = 0u;
@@ -244,6 +264,7 @@ static void clear_lint_list(void)
  * Movement, collision and shooting
  * ------------------------------------------------------------------------- */
 
+/* checks collision using a pixel position */
 static uint8_t wall_pixel(int16_t world_x, int16_t world_y)
 {
     int16_t tile_x;
@@ -263,6 +284,7 @@ static uint8_t wall_pixel(int16_t world_x, int16_t world_y)
     return (uint8_t)(wall_at((uint8_t)tile_x, (uint8_t)tile_y) != 0u);
 }
 
+/* checks all corners before the player moves */
 static uint8_t ok_to_move(int16_t x, int16_t y)
 {
     int16_t right = (int16_t)(x + game_state.player.size - 1);
@@ -281,6 +303,7 @@ static uint8_t ok_to_move(int16_t x, int16_t y)
                      wall_pixel(right, bottom) == 0u);
 }
 
+/* moves the player one step using joystick input */
 static void move_player(const GameInput_t* input)
 {
     int16_t next_x = game_state.player.x;
@@ -313,6 +336,7 @@ static void move_player(const GameInput_t* input)
         game_state.player.y = next_y;
     }
 }
+/* loads the lint objects for the speaker level */
 static void make_speaker_level(void)
 {
     GeneratedEntity_t entity;
@@ -340,6 +364,7 @@ static void make_speaker_level(void)
  * Display boss setup
  * ------------------------------------------------------------------------- */
 
+/* loads the six boss dials for the display level */
 static void make_dials(void)
 {
     const GeneratedMapData_t* map = map_now();
@@ -383,6 +408,7 @@ static void make_dials(void)
     }
 }
 
+/* switches to the final restored screen */
 static void show_win(void)
 {
     game_state.screen = GAME_STATE_LEVEL_COMPLETE;
@@ -391,6 +417,7 @@ static void show_win(void)
     game_state.talk_text = system_restored_message;
 }
 
+/* starts the ending dialogue after the boss is beaten */
 static void end_talk(void)
 {
     game_state.boss.active = 0u;
@@ -402,6 +429,7 @@ static void end_talk(void)
  * Dialogue
  * ------------------------------------------------------------------------- */
 
+/* copies the current dialogue line into the game state */
 static void set_talk(void)
 {
     if (game_state.talk_id >= STORY_SEQUENCE_COUNT) {
@@ -413,6 +441,7 @@ static void set_talk(void)
         story_defs[game_state.talk_id].lines[game_state.talk_line].text;
 }
 
+/* starts a dialogue sequence from the first line */
 static void talk(StorySequenceId_t sequence)
 {
     game_state.screen = GAME_STATE_DIALOGUE;
@@ -421,6 +450,7 @@ static void talk(StorySequenceId_t sequence)
     set_talk();
 }
 
+/* starts dialogue only if it has not already played */
 static void talk_once(StorySequenceId_t sequence, StoryFlag_t flag)
 {
     if ((game_state.story_done & flag) != 0u) {
@@ -434,6 +464,7 @@ static void talk_once(StorySequenceId_t sequence, StoryFlag_t flag)
  * Area transitions and level setup
  * ------------------------------------------------------------------------- */
 
+/* places the boss in the display map */
 static void make_boss(CampaignLevel_t level)
 {
     GeneratedEntity_t entity;
@@ -460,6 +491,7 @@ static void make_boss(CampaignLevel_t level)
     }
 }
 
+/* enters one of the module levels */
 static void go_level(CampaignLevel_t level)
 {
     game_state.area = AREA_MODE_COMPONENT_INTERIOR;
@@ -486,6 +518,7 @@ static void go_level(CampaignLevel_t level)
     }
 }
 
+/* returns the player back to the overworld board */
 static void go_board(void)
 {
     game_state.area = AREA_MODE_OVERWORLD;
@@ -503,6 +536,7 @@ static void go_board(void)
     game_state.player.size = GAME_PLAYER_SIZE;
 }
 
+/* resets the main progress flags for a new run */
 static void reset_stuff(void)
 {
     GeneratedEntity_t entity;
@@ -532,6 +566,7 @@ static void reset_stuff(void)
  * Objectives
  * ------------------------------------------------------------------------- */
 
+/* marks a level done and starts its completion dialogue */
 static void level_done_talk(void)
 {
     if (game_state.level == LEVEL_SPEAKER) {
@@ -550,6 +585,7 @@ static void level_done_talk(void)
     }
 }
 
+/* checks if the player is close enough to clean lint */
 static uint8_t by_lint(const Lint_t* object)
 {
     int16_t player_x = mid(game_state.player.x, game_state.player.size);
@@ -561,6 +597,7 @@ static uint8_t by_lint(const Lint_t* object)
                      abs16((int16_t)(player_y - lint_y)) <= FAULT_REPAIR_DISTANCE);
 }
 
+/* handles pressing action near lint pieces */
 static uint8_t do_lint(const GameInput_t* input)
 {
     if (game_state.level != LEVEL_SPEAKER ||
@@ -596,6 +633,7 @@ static uint8_t do_lint(const GameInput_t* input)
     return 0u;
 }
 
+/* checks if the player is close enough to a boss dial */
 static uint8_t by_dial(const Dial_t* dial)
 {
     int16_t player_x = mid(game_state.player.x, game_state.player.size);
@@ -607,6 +645,7 @@ static uint8_t by_dial(const Dial_t* dial)
                      abs16((int16_t)(player_y - dial_y)) <= FAULT_REPAIR_DISTANCE);
 }
 
+/* handles turning red boss dials green */
 static uint8_t do_dials(const GameInput_t* input)
 {
     if (game_state.level != LEVEL_DISPLAY_BOSS ||
@@ -638,6 +677,7 @@ static uint8_t do_dials(const GameInput_t* input)
     return 0u;
 }
 
+/* checks if the boss is in front of the player shot */
 static uint8_t hit_boss(void)
 {
     int16_t player_x = mid(game_state.player.x, game_state.player.size);
@@ -670,6 +710,7 @@ static uint8_t hit_boss(void)
     }
 }
 
+/* handles the action button when it is used to shoot */
 static void shoot_now(void)
 {
     if (game_state.boss.active != 0u && game_state.boss.vulnerable == 0u) {
@@ -686,6 +727,7 @@ static void shoot_now(void)
     }
 }
 
+/* runs the simple display glitch timer */
 static void do_glitch(void)
 {
     if (game_state.level == LEVEL_DISPLAY_BOSS &&
@@ -702,6 +744,7 @@ static void do_glitch(void)
     }
 }
 
+/* decides if action should fire a shot this frame */
 static void do_shoot(const GameInput_t* input, uint8_t action_consumed)
 {
     if (action_consumed != 0u) {
@@ -717,6 +760,7 @@ static void do_shoot(const GameInput_t* input, uint8_t action_consumed)
  * Overworld entrance / module exit checks
  * ------------------------------------------------------------------------- */
 
+/* converts a door tile into a campaign level */
 static uint8_t door_level(uint8_t tile_value, CampaignLevel_t* level)
 {
     if (tile_value == OVERWORLD_TILE_SPEAKER &&
@@ -734,6 +778,7 @@ static uint8_t door_level(uint8_t tile_value, CampaignLevel_t* level)
     return 0u;
 }
 
+/* checks the overworld door under the player */
 static uint8_t door_check(CampaignLevel_t* level)
 {
     int16_t player_x = mid(game_state.player.x, game_state.player.size);
@@ -755,6 +800,7 @@ static uint8_t door_check(CampaignLevel_t* level)
     return door_level(door_at(tile_x, tile_y), level);
 }
 
+/* saves where the player should return on the board */
 static void save_spot(void)
 {
     static const int8_t return_offsets[4][2] = {
@@ -780,6 +826,7 @@ static void save_spot(void)
     }
 }
 
+/* checks if the player is standing on a module exit */
 static uint8_t exit_hit(void)
 {
     const GeneratedMapData_t* map = map_now();
@@ -817,6 +864,7 @@ static uint8_t exit_hit(void)
     return 0u;
 }
 
+/* updates overworld movement and door entry */
 static void do_board(const GameInput_t* input)
 {
     CampaignLevel_t level;
@@ -828,6 +876,7 @@ static void do_board(const GameInput_t* input)
         go_level(level);
     }
 }
+/* moves dialogue to the next line or closes it */
 static void talk_next(void)
 {
     if (game_state.talk_id < STORY_SEQUENCE_COUNT) {
@@ -878,6 +927,7 @@ static void talk_next(void)
  * Public game API
  * ------------------------------------------------------------------------- */
 
+/* sets the game back to the start state */
 void start_game(void)
 {
     game_state.frame = 0u;
@@ -903,6 +953,7 @@ void start_game(void)
     talk(STORY_LAB_INTRO);
 }
 
+/* main game update called once per frame */
 void play_game(void)
 {
     const GameInput_t* input = get_input();
@@ -965,6 +1016,7 @@ void play_game(void)
     }
 }
 
+/* lets render and hardware read the game state */
 const GameState_t* get_game(void)
 {
     return &game_state;
